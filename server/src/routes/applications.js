@@ -7,6 +7,19 @@ import { sendApplicationEmail } from '../services/mailer.js';
 import { getResumeAttachment } from './resume.js';
 import { groupKey } from '../utils/groupKey.js';
 import { migrateApplications } from '../utils/migrateApplications.js';
+import {
+  collectEmailJobs,
+  countEmails,
+  countEmailsByStatus,
+  createEmailEntry,
+  expandEntriesForPost,
+  findEmailEntry,
+  findRecipient,
+  findRecipientByHrName,
+  groupHasEmail,
+  normalizeGroupRecipients,
+  normalizeRecipient,
+} from '../utils/recipientModel.js';
 import { log } from '../utils/logger.js';
 import { appendSendHistory } from '../utils/sendHistory.js';
 
@@ -25,15 +38,7 @@ function needsMigration(applications) {
 }
 
 function normalizeApplications(applications) {
-  for (const g of applications) {
-    for (const r of g.recipients || []) {
-      if (!r.emailValidation) {
-        r.emailValidation = 'unknown';
-        r.emailValidationMessage = r.emailValidationMessage || '';
-      }
-    }
-  }
-  return applications;
+  return applications.map(normalizeGroupRecipients);
 }
 
 function getApplications() {
@@ -58,30 +63,21 @@ function findGroup(applications, groupId) {
   return applications.find((g) => g.id === groupId);
 }
 
-function findRecipient(applications, recipientId) {
-  for (const g of applications) {
-    const r = g.recipients.find((x) => x.id === recipientId);
-    if (r) return { group: g, recipient: r };
-  }
-  return null;
-}
-
 function syncGroupStatus(group) {
-  const rs = group.recipients;
-  if (rs.length === 0) return;
-  const allSent = rs.every((r) => r.status === STATUS.SENT);
-  const anyFailed = rs.some((r) => r.status === STATUS.FAILED);
-  const anySent = rs.some((r) => r.status === STATUS.SENT);
+  const total = countEmails(group);
+  if (total === 0) return;
+  const sent = countEmailsByStatus(group, STATUS.SENT);
+  const failed = countEmailsByStatus(group, STATUS.FAILED);
 
-  if (allSent) {
+  if (sent === total) {
     group.status = STATUS.SENT;
     return;
   }
-  if (anyFailed && !anySent && group.status !== STATUS.REVIEWED) {
+  if (failed > 0 && sent === 0 && group.status !== STATUS.REVIEWED) {
     group.status = STATUS.FAILED;
     return;
   }
-  if (group.status === STATUS.SENT && !allSent) {
+  if (group.status === STATUS.SENT && sent < total) {
     group.status = STATUS.REVIEWED;
   }
 }
@@ -107,29 +103,27 @@ router.post('/', async (req, res) => {
   if (!Array.isArray(entries) || entries.length === 0) {
     return res
       .status(400)
-      .json({ error: 'Request body must be an array of { company, role, hrName, email }' });
+      .json({ error: 'Request body must be an array of { company, role, hrName, email | emails }' });
   }
 
-  const invalid = entries.find(
-    (e) => !e?.company || !e?.role || !e?.email || typeof e.email !== 'string',
-  );
+  const flat = expandEntriesForPost(entries);
+  const invalid = flat.find((e) => !e?.company || !e?.role || !e?.email);
   if (invalid) {
     return res
       .status(400)
-      .json({ error: 'Every entry needs company, role, and email (hrName optional)' });
+      .json({ error: 'Every entry needs company, role, and at least one email (hrName optional)' });
   }
 
   let applications = getApplications();
   const touchedGroupIds = new Set();
-  const createdGroups = [];
-  const newRecipientChecks = [];
+  const newEmailChecks = [];
 
-  for (const e of entries) {
-    const company = String(e.company).trim();
-    const role = String(e.role).trim();
+  for (const e of flat) {
+    const company = e.company;
+    const role = e.role;
     const key = groupKey(company, role);
-    const hrName = e.hrName ? String(e.hrName).trim() : '';
-    const email = String(e.email).trim();
+    const hrName = e.hrName;
+    const address = e.email;
 
     let group = applications.find((g) => groupKey(g.company, g.role) === key);
 
@@ -148,29 +142,27 @@ router.post('/', async (req, res) => {
         recipients: [],
       };
       applications.unshift(group);
-      createdGroups.push(group);
       touchedGroupIds.add(group.id);
     }
 
-    const duplicate = group.recipients.some(
-      (r) => r.email.toLowerCase() === email.toLowerCase(),
-    );
-    if (!duplicate) {
-      const recipientId = nanoid(8);
-      group.recipients.push({
-        id: recipientId,
-        hrName,
-        email,
-        status: STATUS.PENDING,
-        error: null,
-        sentAt: null,
-        emailValidation: 'checking',
-        emailValidationMessage: 'Checking…',
-      });
-      group.updatedAt = new Date().toISOString();
-      touchedGroupIds.add(group.id);
-      newRecipientChecks.push({ groupId: group.id, recipientId, email });
+    if (groupHasEmail(group, address)) continue;
+
+    let recipient = findRecipientByHrName(group, hrName);
+    if (!recipient) {
+      recipient = { id: nanoid(8), hrName, emails: [] };
+      group.recipients.push(recipient);
     }
+
+    const emailEntry = createEmailEntry(address);
+    recipient.emails.push(emailEntry);
+    group.updatedAt = new Date().toISOString();
+    touchedGroupIds.add(group.id);
+    newEmailChecks.push({
+      groupId: group.id,
+      recipientId: recipient.id,
+      emailId: emailEntry.id,
+      address,
+    });
   }
 
   persistApplications(applications);
@@ -183,10 +175,10 @@ router.post('/', async (req, res) => {
     entries: entries.length,
     groupsTouched: touchedGroupIds.size,
     coverLettersToGenerate: newGroupsNeedingGeneration.length,
-    emailsToValidate: newRecipientChecks.length,
+    emailsToValidate: newEmailChecks.length,
   });
 
-  runBackgroundJobs(newGroupsNeedingGeneration, newRecipientChecks);
+  runBackgroundJobs(newGroupsNeedingGeneration, newEmailChecks);
 
   const responseGroups = [...touchedGroupIds]
     .map((id) => getApplications().find((g) => g.id === id))
@@ -204,10 +196,10 @@ router.post('/', async (req, res) => {
 router.post('/send', async (req, res) => {
   const { ids } = req.body || {};
   if (!Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: 'Body must include { ids: [...] } (recipient ids)' });
+    return res.status(400).json({ error: 'Body must include { ids: [...] } (email entry ids)' });
   }
 
-  log.info(CTX, 'Bulk send requested', { recipientCount: ids.length });
+  log.info(CTX, 'Bulk send requested', { emailCount: ids.length });
 
   const attachment = getResumeAttachment();
   if (!attachment) {
@@ -219,87 +211,88 @@ router.post('/send', async (req, res) => {
 
   const results = [];
 
-  for (const recipientId of ids) {
+  for (const emailId of ids) {
     let applications = getApplications();
-    const found = findRecipient(applications, recipientId);
+    const found = findEmailEntry(applications, emailId);
     if (!found) {
-      log.warn(CTX, 'Send skipped — recipient not found', { recipientId });
-      results.push({ id: recipientId, ok: false, error: 'Not found' });
+      log.warn(CTX, 'Send skipped — email not found', { emailId });
+      results.push({ id: emailId, ok: false, error: 'Not found' });
       continue;
     }
 
-    const { group, recipient } = found;
+    const { group, recipient, email: emailEntry } = found;
 
-    if (recipient.status === STATUS.SENT) {
+    if (emailEntry.status === STATUS.SENT) {
       log.info(CTX, 'Send skipped — already sent', {
-        recipientId,
-        email: recipient.email,
+        emailId,
+        to: emailEntry.address,
         company: group.company,
       });
-      results.push({ id: recipientId, ok: true, skipped: true });
+      results.push({ id: emailId, ok: true, skipped: true });
       continue;
     }
 
     if (!group.coverLetter && !group.body) {
       log.warn(CTX, 'Send skipped — cover letter not ready', {
-        recipientId,
+        emailId,
         groupId: group.id,
         company: group.company,
       });
-      results.push({ id: recipientId, ok: false, error: 'Cover letter not generated yet' });
+      results.push({ id: emailId, ok: false, error: 'Cover letter not generated yet' });
       continue;
     }
 
     const { subject, body } = resolveEmailPayload(group, recipient);
 
     log.info(CTX, 'Sending application email', {
-      recipientId,
-      to: recipient.email,
+      emailId,
+      to: emailEntry.address,
       company: group.company,
       role: group.role,
       subject,
     });
 
     const result = await sendWithRetry({
-      to: recipient.email,
+      to: emailEntry.address,
       subject: subject || group.subject,
       body,
       attachment,
     });
 
     applications = getApplications();
-    const fresh = findRecipient(applications, recipientId);
+    const fresh = findEmailEntry(applications, emailId);
     if (fresh) {
       if (result.ok) {
-        fresh.recipient.status = STATUS.SENT;
-        fresh.recipient.error = null;
-        fresh.recipient.sentAt = new Date().toISOString();
+        fresh.email.status = STATUS.SENT;
+        fresh.email.error = null;
+        fresh.email.sentAt = new Date().toISOString();
       } else {
-        fresh.recipient.status = STATUS.FAILED;
-        fresh.recipient.error = result.error;
+        fresh.email.status = STATUS.FAILED;
+        fresh.email.error = result.error;
       }
       fresh.group.updatedAt = new Date().toISOString();
       syncGroupStatus(fresh.group);
       persistApplications(applications);
     }
 
-    results.push({ id: recipientId, groupId: group.id, ...result });
+    results.push({ id: emailId, groupId: group.id, recipientId: recipient.id, ...result });
 
     if (result.ok && !result.skipped) {
-      log.info(CTX, 'Recipient marked sent', { recipientId, messageId: result.messageId });
+      log.info(CTX, 'Email marked sent', { emailId, messageId: result.messageId });
       appendSendHistory({
-        sentAt: fresh?.recipient.sentAt || new Date().toISOString(),
+        sentAt: fresh?.email.sentAt || new Date().toISOString(),
         company: group.company,
         role: group.role,
         hrName: recipient.hrName,
-        email: recipient.email,
+        email: emailEntry.address,
         subject: subject || group.subject,
         messageId: result.messageId,
         groupId: group.id,
-        recipientId,
+        recipientId: recipient.id,
+        emailId,
       });
     } else if (!result.ok) {
-      log.error(CTX, 'Recipient send failed', { recipientId, error: result.error });
+      log.error(CTX, 'Email send failed', { emailId, error: result.error });
     }
   }
 
@@ -348,12 +341,38 @@ router.patch('/:id', (req, res) => {
     for (const patch of recipients) {
       const r = group.recipients.find((x) => x.id === patch.id);
       if (!r) continue;
+      normalizeRecipient(r);
       if (patch.hrName !== undefined) r.hrName = patch.hrName;
-      if (patch.email !== undefined && patch.email !== r.email) {
-        r.email = patch.email;
-        r.emailValidation = 'checking';
-        r.emailValidationMessage = 'Checking…';
-        revalidate.push({ groupId: group.id, recipientId: r.id, email: r.email });
+
+      if (Array.isArray(patch.emails)) {
+        for (const ep of patch.emails) {
+          const existing = (r.emails || []).find((x) => x.id === ep.id);
+          if (!existing) continue;
+          if (ep.address !== undefined && ep.address !== existing.address) {
+            existing.address = ep.address.trim();
+            existing.emailValidation = 'checking';
+            existing.emailValidationMessage = 'Checking…';
+            revalidate.push({
+              groupId: group.id,
+              recipientId: r.id,
+              emailId: existing.id,
+              address: existing.address,
+            });
+          }
+        }
+        for (const ep of patch.emails) {
+          if (ep.id || !ep.address?.trim()) continue;
+          const addr = ep.address.trim();
+          if ((r.emails || []).some((x) => x.address.toLowerCase() === addr.toLowerCase())) continue;
+          const created = createEmailEntry(addr);
+          r.emails.push(created);
+          revalidate.push({
+            groupId: group.id,
+            recipientId: r.id,
+            emailId: created.id,
+            address: addr,
+          });
+        }
       }
     }
   }
@@ -368,7 +387,7 @@ router.patch('/:id', (req, res) => {
       count: revalidate.length,
     });
     for (const job of revalidate) {
-      void validateRecipientEmail(job.groupId, job.recipientId, job.email);
+      void validateEmailEntry(job.groupId, job.recipientId, job.emailId, job.address);
     }
   }
 
@@ -407,7 +426,63 @@ router.delete('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+router.post(
+  '/:groupId/recipients/:recipientId/emails/:emailId/validate-email',
+  async (req, res) => {
+    const applications = getApplications();
+    const found = findEmailEntry(applications, req.params.emailId);
+    if (!found || found.group.id !== req.params.groupId) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    log.info(CTX, 'Manual email revalidation requested', {
+      groupId: req.params.groupId,
+      emailId: req.params.emailId,
+      address: found.email.address,
+    });
+
+    try {
+      const result = await validateEmailEntry(
+        req.params.groupId,
+        req.params.recipientId,
+        req.params.emailId,
+        found.email.address,
+      );
+      res.json({ email: result, recipient: found.recipient });
+    } catch (err) {
+      log.error(CTX, 'Manual email revalidation failed', {
+        emailId: req.params.emailId,
+        error: err.message,
+      });
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 router.post('/:groupId/recipients/:recipientId/validate-email', async (req, res) => {
+  const applications = getApplications();
+  const found = findRecipient(applications, req.params.recipientId);
+  if (!found || found.group.id !== req.params.groupId) {
+    return res.status(404).json({ error: 'Recipient not found' });
+  }
+  normalizeRecipient(found.recipient);
+  const first = found.recipient.emails?.[0];
+  if (!first) return res.status(404).json({ error: 'No email on recipient' });
+
+  try {
+    const result = await validateEmailEntry(
+      req.params.groupId,
+      req.params.recipientId,
+      first.id,
+      first.address,
+    );
+    res.json({ email: result, recipient: found.recipient });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:groupId/recipients/:recipientId/emails/:emailId', (req, res) => {
   const applications = getApplications();
   const group = findGroup(applications, req.params.groupId);
   if (!group) return res.status(404).json({ error: 'Application not found' });
@@ -415,28 +490,25 @@ router.post('/:groupId/recipients/:recipientId/validate-email', async (req, res)
   const recipient = group.recipients.find((r) => r.id === req.params.recipientId);
   if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
 
-  log.info(CTX, 'Manual email revalidation requested', {
-    groupId: req.params.groupId,
-    recipientId: req.params.recipientId,
-    email: recipient.email,
-  });
-
-  setRecipientEmailValidation(req.params.groupId, req.params.recipientId, 'checking', 'Checking…');
-
-  try {
-    const result = await validateRecipientEmail(
-      req.params.groupId,
-      req.params.recipientId,
-      recipient.email,
-    );
-    res.json({ recipient: result });
-  } catch (err) {
-    log.error(CTX, 'Manual email revalidation failed', {
-      recipientId: req.params.recipientId,
-      error: err.message,
-    });
-    res.status(500).json({ error: err.message });
+  const before = recipient.emails?.length || 0;
+  recipient.emails = (recipient.emails || []).filter((e) => e.id !== req.params.emailId);
+  if (recipient.emails.length === before) {
+    return res.status(404).json({ error: 'Email not found' });
   }
+
+  if (recipient.emails.length === 0) {
+    group.recipients = group.recipients.filter((r) => r.id !== recipient.id);
+  }
+
+  if (group.recipients.length === 0) {
+    persistApplications(applications.filter((g) => g.id !== group.id));
+  } else {
+    syncGroupStatus(group);
+    group.updatedAt = new Date().toISOString();
+    persistApplications(applications);
+  }
+  log.info(CTX, 'Email removed', { emailId: req.params.emailId });
+  res.json({ ok: true });
 });
 
 router.delete('/:groupId/recipients/:recipientId', (req, res) => {
@@ -481,10 +553,10 @@ async function sendWithRetry({ to, subject, body, attachment }, attempts = 3) {
   return { ok: false, error: lastError?.message || 'Unknown send error', attempts };
 }
 
-function runBackgroundJobs(groupsToGenerate, recipientsToValidate) {
+function runBackgroundJobs(groupsToGenerate, emailJobs) {
   log.info(CTX, 'Background jobs started', {
     coverLetterJobs: groupsToGenerate.length,
-    emailValidationJobs: recipientsToValidate.length,
+    emailValidationJobs: emailJobs.length,
   });
 
   void Promise.all([
@@ -508,56 +580,53 @@ function runBackgroundJobs(groupsToGenerate, recipientsToValidate) {
     })(),
     (async () => {
       await Promise.all(
-        recipientsToValidate.map(({ groupId, recipientId, email }) =>
-          validateRecipientEmail(groupId, recipientId, email).catch((err) => {
+        emailJobs.map(({ groupId, recipientId, emailId, address }) =>
+          validateEmailEntry(groupId, recipientId, emailId, address).catch((err) => {
             log.error(CTX, 'Email validation job failed', {
               groupId,
               recipientId,
-              email,
+              emailId,
+              address,
               error: err.message,
             });
-            setRecipientEmailValidation(
-              groupId,
-              recipientId,
-              'unknown',
-              err.message || 'Validation failed',
-            );
+            setEmailValidation(groupId, recipientId, emailId, 'unknown', err.message || 'Validation failed');
           }),
         ),
       );
-      log.info(CTX, 'Email validation background jobs finished', {
-        count: recipientsToValidate.length,
-      });
+      log.info(CTX, 'Email validation background jobs finished', { count: emailJobs.length });
     })(),
   ]).then(() => log.info(CTX, 'All background jobs completed'));
 }
 
-function setRecipientEmailValidation(groupId, recipientId, status, message) {
+function setEmailValidation(groupId, recipientId, emailId, status, message) {
   updateDB((state) => {
-    const apps = needsMigration(state.applications)
-      ? migrateApplications(state.applications)
-      : state.applications;
+    const apps = normalizeApplications(
+      needsMigration(state.applications)
+        ? migrateApplications(state.applications)
+        : state.applications,
+    );
     const g = apps.find((x) => x.id === groupId);
     const r = g?.recipients?.find((x) => x.id === recipientId);
-    if (!r) return state;
-    r.emailValidation = status;
-    r.emailValidationMessage = message;
+    const e = r?.emails?.find((x) => x.id === emailId);
+    if (!e) return state;
+    e.emailValidation = status;
+    e.emailValidationMessage = message;
     g.updatedAt = new Date().toISOString();
-    state.applications = normalizeApplications(apps);
+    state.applications = apps;
     return state;
   });
 }
 
-async function validateRecipientEmail(groupId, recipientId, email) {
-  log.info(CTX, 'Validating recipient email', { groupId, recipientId, email });
-  setRecipientEmailValidation(groupId, recipientId, 'checking', 'Checking…');
-  const { status, message } = await checkEmailExists(email);
-  setRecipientEmailValidation(groupId, recipientId, status, message);
-  log.info(CTX, 'Recipient email validation done', { groupId, recipientId, email, status, message });
+async function validateEmailEntry(groupId, recipientId, emailId, address) {
+  log.info(CTX, 'Validating email', { groupId, recipientId, emailId, address });
+  setEmailValidation(groupId, recipientId, emailId, 'checking', 'Checking…');
+  const { status, message } = await checkEmailExists(address);
+  setEmailValidation(groupId, recipientId, emailId, status, message);
+  log.info(CTX, 'Email validation done', { groupId, emailId, address, status, message });
 
   const apps = getApplications();
-  const found = findRecipient(apps, recipientId);
-  return found?.recipient ?? null;
+  const found = findEmailEntry(apps, emailId);
+  return found?.email ?? null;
 }
 
 function setGroupError(groupId, message) {

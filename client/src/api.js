@@ -46,10 +46,15 @@ export const api = {
     fetch(`${BASE}/applications/${groupId}/recipients/${recipientId}`, {
       method: 'DELETE',
     }).then(handle),
-  validateRecipientEmail: (groupId, recipientId) =>
-    fetch(`${BASE}/applications/${groupId}/recipients/${recipientId}/validate-email`, {
-      method: 'POST',
+  deleteEmail: (groupId, recipientId, emailId) =>
+    fetch(`${BASE}/applications/${groupId}/recipients/${recipientId}/emails/${emailId}`, {
+      method: 'DELETE',
     }).then(handle),
+  validateEmail: (groupId, recipientId, emailId) =>
+    fetch(
+      `${BASE}/applications/${groupId}/recipients/${recipientId}/emails/${emailId}/validate-email`,
+      { method: 'POST' },
+    ).then(handle),
   sendApplications: (ids) =>
     fetch(`${BASE}/applications/send`, {
       method: 'POST',
@@ -58,11 +63,46 @@ export const api = {
     }).then(handle),
 };
 
-/** Recipient is sendable when its group has content and it hasn't been sent yet. */
-export function isRecipientSendable(group, recipient) {
+/** Ensure legacy recipient.email is available as emails[]. */
+export function getRecipientEmails(recipient) {
+  if (Array.isArray(recipient?.emails) && recipient.emails.length > 0) {
+    return recipient.emails;
+  }
+  if (recipient?.email) {
+    return [
+      {
+        id: recipient.id,
+        address: recipient.email,
+        emailValidation: recipient.emailValidation,
+        emailValidationMessage: recipient.emailValidationMessage,
+        status: recipient.status,
+        error: recipient.error,
+        sentAt: recipient.sentAt,
+      },
+    ];
+  }
+  return [];
+}
+
+export function countGroupEmails(group) {
+  return (group.recipients || []).reduce((n, r) => n + getRecipientEmails(r).length, 0);
+}
+
+export function countGroupEmailsByStatus(group, status) {
+  let n = 0;
+  for (const r of group.recipients || []) {
+    for (const e of getRecipientEmails(r)) {
+      if (e.status === status) n++;
+    }
+  }
+  return n;
+}
+
+/** One email entry is sendable when its group has content and it hasn't been sent yet. */
+export function isEmailSendable(group, emailEntry) {
   return (
-    recipient.status !== 'sent' &&
-    recipient.emailValidation !== 'invalid' &&
+    emailEntry.status !== 'sent' &&
+    emailEntry.emailValidation !== 'invalid' &&
     Boolean(group.coverLetter || group.body) &&
     Boolean(group.subject || group.coverLetter)
   );
@@ -74,6 +114,8 @@ export function isGroupGenerating(group) {
 
 export function isEmailChecking(applications) {
   return applications.some((g) =>
-    (g.recipients || []).some((r) => r.emailValidation === 'checking'),
+    (g.recipients || []).some((r) =>
+      getRecipientEmails(r).some((e) => e.emailValidation === 'checking'),
+    ),
   );
 }

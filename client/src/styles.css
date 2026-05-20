@@ -551,19 +551,45 @@ body {
   flex-direction: column;
   gap: 8px;
 }
-.contact-row {
-  display: grid;
-  grid-template-columns: 1fr 1.4fr 36px;
+.contact-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
+  background: var(--surface);
 }
-.contact-row input {
+.contact-card .contact-name {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
   font-family: inherit;
-  background: var(--surface);
+  background: #fff;
+}
+.contact-emails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 4px;
+}
+.contact-email-row {
+  display: grid;
+  grid-template-columns: 1fr 36px;
+  gap: 8px;
+  align-items: center;
+}
+.contact-email-row input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+.remove-contact {
+  align-self: flex-start;
 }
 .btn.primary-outline {
   border: 1px dashed var(--primary);
@@ -672,6 +698,25 @@ body {
   grid-template-columns: 1fr 1.6fr;
   align-items: start;
   margin-bottom: 10px;
+}
+.recipient-emails-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.email-line {
+  display: grid;
+  grid-template-columns: 1fr 36px;
+  gap: 8px;
+  align-items: start;
+}
+.email-line input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  width: 100%;
 }
 .checkbox-row {
   flex-direction: row;

@@ -4,7 +4,7 @@ A small full-stack app that automates job application emails:
 
 1. **Upload your resume once** — it's attached to every outgoing email.
 2. **Add multiple companies at once** (form rows or JSON paste).
-3. **AI generates one cover letter per company + role** — multiple HR contacts at the same company share a single OpenAI call and the same message.
+3. **AI generates one cover letter per company + role** — multiple HR contacts (and multiple email addresses per HR) share a single OpenAI call and the same message. Each address is validated and sent separately.
 4. **Review, edit, and approve** before anything is sent.
 5. **Send selected (or all) approved applications with one click.**
 6. Each application has a status: `pending`, `reviewed`, `sent`, `failed`. Failed sends are auto-retried up to 3 times.

@@ -1,10 +1,16 @@
 import { nanoid } from 'nanoid';
 import { groupKey } from './groupKey.js';
+import { createEmailEntry, normalizeRecipient } from './recipientModel.js';
 
 /** Convert legacy flat applications (one row per HR) into grouped applications. */
 export function migrateApplications(applications) {
   if (!Array.isArray(applications) || applications.length === 0) return [];
-  if (applications[0].recipients) return applications;
+  if (applications[0].recipients) {
+    return applications.map((g) => ({
+      ...g,
+      recipients: (g.recipients || []).map(normalizeRecipient),
+    }));
+  }
 
   const map = new Map();
 
@@ -33,16 +39,21 @@ export function migrateApplications(applications) {
       if (row.updatedAt && row.updatedAt > group.updatedAt) group.updatedAt = row.updatedAt;
     }
 
-    group.recipients.push({
-      id: nanoid(8),
-      hrName: row.hrName || '',
-      email: row.email,
-      status: row.status === 'sent' ? 'sent' : row.status === 'failed' ? 'failed' : 'pending',
-      error: row.status === 'failed' ? row.error : null,
-      sentAt: row.sentAt || null,
-      emailValidation: 'unknown',
-      emailValidationMessage: '',
-    });
+    group.recipients.push(
+      normalizeRecipient({
+        id: nanoid(8),
+        hrName: row.hrName || '',
+        emails: [
+          createEmailEntry(row.email, {
+            emailValidation: 'unknown',
+            emailValidationMessage: '',
+            status: row.status === 'sent' ? 'sent' : row.status === 'failed' ? 'failed' : 'pending',
+            error: row.status === 'failed' ? row.error : null,
+            sentAt: row.sentAt || null,
+          }),
+        ],
+      }),
+    );
   }
 
   return [...map.values()];

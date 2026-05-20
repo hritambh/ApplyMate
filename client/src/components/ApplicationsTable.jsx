@@ -1,4 +1,10 @@
-import { isGroupGenerating, isRecipientSendable } from '../api.js';
+import {
+  countGroupEmails,
+  countGroupEmailsByStatus,
+  getRecipientEmails,
+  isEmailSendable,
+  isGroupGenerating,
+} from '../api.js';
 import EmailValidationBadge from './EmailValidationBadge.jsx';
 
 export default function ApplicationsTable({
@@ -9,6 +15,7 @@ export default function ApplicationsTable({
   onRegenerate,
   onDeleteGroup,
   onDeleteRecipient,
+  onDeleteEmail,
 }) {
   if (applications.length === 0) {
     return (
@@ -32,27 +39,22 @@ export default function ApplicationsTable({
           </tr>
         </thead>
         <tbody>
-          {applications.map((group) => {
-            const isGenerating = isGroupGenerating(group);
-            const recipientCount = group.recipients?.length || 0;
-            const sentCount = group.recipients?.filter((r) => r.status === 'sent').length || 0;
-
-            return (
-              <GroupRows
-                key={group.id}
-                group={group}
-                isGenerating={isGenerating}
-                recipientCount={recipientCount}
-                sentCount={sentCount}
-                selected={selected}
-                onToggleSelect={onToggleSelect}
-                onReview={onReview}
-                onRegenerate={onRegenerate}
-                onDeleteGroup={onDeleteGroup}
-                onDeleteRecipient={onDeleteRecipient}
-              />
-            );
-          })}
+          {applications.map((group) => (
+            <GroupRows
+              key={group.id}
+              group={group}
+              isGenerating={isGroupGenerating(group)}
+              emailCount={countGroupEmails(group)}
+              sentCount={countGroupEmailsByStatus(group, 'sent')}
+              selected={selected}
+              onToggleSelect={onToggleSelect}
+              onReview={onReview}
+              onRegenerate={onRegenerate}
+              onDeleteGroup={onDeleteGroup}
+              onDeleteRecipient={onDeleteRecipient}
+              onDeleteEmail={onDeleteEmail}
+            />
+          ))}
         </tbody>
       </table>
     </div>
@@ -62,7 +64,7 @@ export default function ApplicationsTable({
 function GroupRows({
   group,
   isGenerating,
-  recipientCount,
+  emailCount,
   sentCount,
   selected,
   onToggleSelect,
@@ -70,114 +72,154 @@ function GroupRows({
   onRegenerate,
   onDeleteGroup,
   onDeleteRecipient,
+  onDeleteEmail,
 }) {
-  const recipients = group.recipients || [];
+  const rows = [];
+  let rowIndex = 0;
+  const hrCount = group.recipients?.length || 0;
 
-  return recipients.map((recipient, idx) => {
-    const isReady = isRecipientSendable(group, recipient);
-    const isFirst = idx === 0;
+  for (const recipient of group.recipients || []) {
+    const emails = getRecipientEmails(recipient);
+    emails.forEach((email, emailIdx) => {
+      rows.push({
+        recipient,
+        email,
+        isFirstGroupRow: rowIndex === 0,
+        isFirstHrRow: emailIdx === 0,
+        emailIdx,
+        hrEmailCount: emails.length,
+      });
+      rowIndex++;
+    });
+  }
 
+  if (rows.length === 0) {
     return (
-      <tr
-        key={recipient.id}
-        className={`${selected.has(recipient.id) ? 'selected' : ''} ${isFirst ? 'group-first' : 'group-cont'}`}
-      >
-        <td className="col-check">
-          <input
-            type="checkbox"
-            checked={selected.has(recipient.id)}
-            onChange={() => onToggleSelect(recipient.id)}
-            disabled={!isReady}
-            title={
-              recipient.emailValidation === 'invalid'
-                ? 'Fix or verify email before sending'
-                : isReady
-                  ? ''
-                  : 'Not ready to send'
-            }
-          />
-        </td>
-        <td>
-          {isFirst ? (
-            <>
-              <div className="company">{group.company}</div>
-              {recipientCount > 1 && (
-                <div className="muted small">{recipientCount} HR contacts</div>
-              )}
-            </>
-          ) : null}
-        </td>
-        <td>{isFirst ? group.role : null}</td>
-        <td>
-          <div>{recipient.hrName || <span className="muted">No HR name</span>}</div>
-          <div className="muted small">{recipient.email}</div>
-          <EmailValidationBadge
-            status={recipient.emailValidation}
-            message={recipient.emailValidationMessage}
-          />
-        </td>
-        <td>
-          <RowStatusBadge
-            group={group}
-            recipient={recipient}
-            isGenerating={isGenerating && isFirst}
-            sentCount={sentCount}
-            totalCount={recipientCount}
-            showGroupError={isFirst}
-          />
-          {recipient.sentAt && (
-            <div className="muted small">{new Date(recipient.sentAt).toLocaleString()}</div>
-          )}
-          {recipient.error && recipient.status === 'failed' && (
-            <div className="error-msg small" title={recipient.error}>
-              {truncate(recipient.error, 60)}
-            </div>
-          )}
-        </td>
-        <td className="col-actions">
-          {isFirst ? (
-            <>
-              <button
-                className="btn small"
-                onClick={() => onReview(group.id)}
-                title="Edit company, HR contacts, and cover letter"
-              >
-                Review
-              </button>
-              <button
-                className="btn small ghost"
-                onClick={() => onRegenerate(group.id)}
-                disabled={isGenerating}
-                title="Regenerate cover letter (shared for all HRs at this company)"
-              >
-                ↻
-              </button>
-              <button
-                className="btn small danger-ghost"
-                onClick={() => onDeleteGroup(group.id)}
-                title="Delete entire company application"
-              >
-                ×
-              </button>
-            </>
-          ) : (
-            <button
-              className="btn small danger-ghost"
-              onClick={() => onDeleteRecipient(group.id, recipient.id)}
-              title="Remove this HR contact"
-            >
-              ×
-            </button>
-          )}
+      <tr key={group.id} className="group-first">
+        <td colSpan={6} className="muted">
+          No HR contacts — use Review or add companies.
         </td>
       </tr>
     );
-  });
+  }
+
+  return rows.map(
+    ({ recipient, email, isFirstGroupRow, isFirstHrRow, emailIdx, hrEmailCount }) => {
+      const isReady = isEmailSendable(group, email);
+
+      return (
+        <tr
+          key={email.id}
+          className={`${selected.has(email.id) ? 'selected' : ''} ${isFirstGroupRow ? 'group-first' : 'group-cont'}`}
+        >
+          <td className="col-check">
+            <input
+              type="checkbox"
+              checked={selected.has(email.id)}
+              onChange={() => onToggleSelect(email.id)}
+              disabled={!isReady}
+              title={
+                email.emailValidation === 'invalid'
+                  ? 'Fix or verify email before sending'
+                  : isReady
+                    ? ''
+                    : 'Not ready to send'
+              }
+            />
+          </td>
+          <td>
+            {isFirstGroupRow ? (
+              <>
+                <div className="company">{group.company}</div>
+                {hrCount > 1 && <div className="muted small">{hrCount} HR contacts</div>}
+              </>
+            ) : null}
+          </td>
+          <td>{isFirstGroupRow ? group.role : null}</td>
+          <td>
+            {isFirstHrRow ? (
+              <div>{recipient.hrName || <span className="muted">No HR name</span>}</div>
+            ) : null}
+            <div className="muted small">{email.address}</div>
+            {hrEmailCount > 1 && emailIdx > 0 && (
+              <div className="muted small">↳ additional email</div>
+            )}
+            <EmailValidationBadge
+              status={email.emailValidation}
+              message={email.emailValidationMessage}
+            />
+          </td>
+          <td>
+            <RowStatusBadge
+              group={group}
+              email={email}
+              isGenerating={isGenerating && isFirstGroupRow}
+              sentCount={sentCount}
+              totalCount={emailCount}
+              showGroupError={isFirstGroupRow}
+            />
+            {email.sentAt && (
+              <div className="muted small">{new Date(email.sentAt).toLocaleString()}</div>
+            )}
+            {email.error && email.status === 'failed' && (
+              <div className="error-msg small" title={email.error}>
+                {truncate(email.error, 60)}
+              </div>
+            )}
+          </td>
+          <td className="col-actions">
+            {isFirstGroupRow ? (
+              <>
+                <button
+                  className="btn small"
+                  onClick={() => onReview(group.id)}
+                  title="Edit company, HR contacts, and cover letter"
+                >
+                  Review
+                </button>
+                <button
+                  className="btn small ghost"
+                  onClick={() => onRegenerate(group.id)}
+                  disabled={isGenerating}
+                  title="Regenerate cover letter (shared for all HRs at this company)"
+                >
+                  ↻
+                </button>
+                <button
+                  className="btn small danger-ghost"
+                  onClick={() => onDeleteGroup(group.id)}
+                  title="Delete entire company application"
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn small danger-ghost"
+                onClick={() =>
+                  onDeleteEmail
+                    ? onDeleteEmail(group.id, recipient.id, email.id)
+                    : onDeleteRecipient(group.id, recipient.id)
+                }
+                title={
+                  onDeleteEmail && hrEmailCount > 1
+                    ? 'Remove this email'
+                    : 'Remove this HR contact'
+                }
+              >
+                ×
+              </button>
+            )}
+          </td>
+        </tr>
+      );
+    },
+  );
 }
 
 function RowStatusBadge({
   group,
-  recipient,
+  email,
   isGenerating,
   sentCount,
   totalCount,
@@ -191,10 +233,10 @@ function RowStatusBadge({
     );
   }
 
-  if (recipient.status === 'sent') {
+  if (email.status === 'sent') {
     return <span className="badge badge-sent">sent</span>;
   }
-  if (recipient.status === 'failed') {
+  if (email.status === 'failed') {
     return <span className="badge badge-failed">failed</span>;
   }
 

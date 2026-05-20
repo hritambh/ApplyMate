@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { getRecipientEmails } from '../api.js';
 import { buildPreviewBody } from '../utils/emailPreview.js';
 import EmailValidationBadge from './EmailValidationBadge.jsx';
 
@@ -10,8 +11,6 @@ export default function ReviewModal({
   onRegenerate,
   onRevalidateEmail,
 }) {
-  const recipients = application.recipients || [];
-
   const [form, setForm] = useState(() => buildFormState(application));
   const [useCustomBody, setUseCustomBody] = useState(Boolean(application.body?.trim()));
 
@@ -43,10 +42,52 @@ export default function ReviewModal({
 
   const update = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const updateRecipient = (id, key, value) => {
+  const updateRecipient = (recipientId, key, value) => {
     setForm((f) => ({
       ...f,
-      recipients: f.recipients.map((r) => (r.id === id ? { ...r, [key]: value } : r)),
+      recipients: f.recipients.map((r) =>
+        r.id === recipientId ? { ...r, [key]: value } : r,
+      ),
+    }));
+  };
+
+  const updateEmail = (recipientId, emailId, address) => {
+    setForm((f) => ({
+      ...f,
+      recipients: f.recipients.map((r) =>
+        r.id === recipientId
+          ? {
+              ...r,
+              emails: r.emails.map((e) =>
+                e.id === emailId ? { ...e, address } : e,
+              ),
+            }
+          : r,
+      ),
+    }));
+  };
+
+  const addEmail = (recipientId) => {
+    setForm((f) => ({
+      ...f,
+      recipients: f.recipients.map((r) =>
+        r.id === recipientId
+          ? { ...r, emails: [...r.emails, { id: `new-${crypto.randomUUID()}`, address: '' }] }
+          : r,
+      ),
+    }));
+  };
+
+  const removeEmail = (recipientId, emailId) => {
+    setForm((f) => ({
+      ...f,
+      recipients: f.recipients
+        .map((r) =>
+          r.id === recipientId
+            ? { ...r, emails: r.emails.filter((e) => e.id !== emailId) }
+            : r,
+        )
+        .filter((r) => r.emails.length > 0),
     }));
   };
 
@@ -61,7 +102,10 @@ export default function ReviewModal({
       recipients: form.recipients.map((r) => ({
         id: r.id,
         hrName: r.hrName.trim(),
-        email: r.email.trim(),
+        emails: r.emails.map((e) => ({
+          ...(e.id && !String(e.id).startsWith('new-') ? { id: e.id } : {}),
+          address: e.address.trim(),
+        })),
       })),
     });
   };
@@ -69,13 +113,22 @@ export default function ReviewModal({
   const isGenerating =
     application.status === 'pending' && !application.coverLetter && !application.error;
 
-  const validationById = useMemo(
-    () => Object.fromEntries((application.recipients || []).map((r) => [r.id, r])),
-    [application.recipients],
+  const validationByEmailId = useMemo(() => {
+    const map = {};
+    for (const r of application.recipients || []) {
+      for (const e of getRecipientEmails(r)) {
+        map[e.id] = e;
+      }
+    }
+    return map;
+  }, [application.recipients]);
+
+  const hasInvalidEmail = Object.values(validationByEmailId).some(
+    (e) => e.emailValidation === 'invalid',
   );
 
-  const hasInvalidEmail = (application.recipients || []).some(
-    (r) => r.emailValidation === 'invalid',
+  const allEmailsFilled = form.recipients.every((r) =>
+    r.emails.every((e) => e.address.trim()),
   );
 
   return (
@@ -124,50 +177,75 @@ export default function ReviewModal({
           <section className="review-section">
             <h3 className="review-section-title">HR contacts</h3>
             <p className="hint section-hint">
-              Edit each person&apos;s name and email. The same cover letter is sent to everyone;
-              each email uses <code>Hi {'{their name}'}</code> in the greeting.
+              Each person can have multiple email addresses. Every address is validated and sent
+              separately with the same cover letter and a personalized greeting.
             </p>
-            {form.recipients.map((r) => {
-              const live = validationById[r.id];
-              return (
-                <div className="recipient-row review-recipient" key={r.id}>
-                  <label className="recipient-field">
-                    <span>Name</span>
-                    <input
-                      placeholder="HR name"
-                      value={r.hrName}
-                      onChange={(e) => updateRecipient(r.id, 'hrName', e.target.value)}
-                    />
-                  </label>
-                  <div className="email-field-col">
-                    <label className="recipient-field">
-                      <span>Email</span>
-                      <input
-                        placeholder="email@company.com"
-                        value={r.email}
-                        onChange={(e) => updateRecipient(r.id, 'email', e.target.value)}
-                      />
-                    </label>
-                    <div className="email-field-meta">
-                      <EmailValidationBadge
-                        status={live?.emailValidation}
-                        message={live?.emailValidationMessage}
-                      />
-                      {onRevalidateEmail && (
-                        <button
-                          type="button"
-                          className="btn small ghost"
-                          disabled={live?.emailValidation === 'checking'}
-                          onClick={() => onRevalidateEmail(application.id, r.id)}
-                        >
-                          Re-check
-                        </button>
-                      )}
-                    </div>
-                  </div>
+            {form.recipients.map((r) => (
+              <div className="recipient-row review-recipient" key={r.id}>
+                <label className="recipient-field">
+                  <span>Name</span>
+                  <input
+                    placeholder="HR name"
+                    value={r.hrName}
+                    onChange={(e) => updateRecipient(r.id, 'hrName', e.target.value)}
+                  />
+                </label>
+                <div className="recipient-emails-block">
+                  <span className="section-label">Emails</span>
+                  {r.emails.map((e) => {
+                    const live = e.id ? validationByEmailId[e.id] : null;
+                    return (
+                      <div className="email-line" key={e.id || `new-${e.address}`}>
+                        <div className="email-field-col">
+                          <input
+                            placeholder="email@company.com"
+                            value={e.address}
+                            onChange={(ev) => updateEmail(r.id, e.id, ev.target.value)}
+                          />
+                          <div className="email-field-meta">
+                            {live && (
+                              <EmailValidationBadge
+                                status={live.emailValidation}
+                                message={live.emailValidationMessage}
+                              />
+                            )}
+                            {onRevalidateEmail && e.id && (
+                              <button
+                                type="button"
+                                className="btn small ghost"
+                                disabled={live?.emailValidation === 'checking'}
+                                onClick={() =>
+                                  onRevalidateEmail(application.id, r.id, e.id)
+                                }
+                              >
+                                Re-check
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {r.emails.length > 1 && (
+                          <button
+                            type="button"
+                            className="btn danger-ghost"
+                            onClick={() => removeEmail(r.id, e.id)}
+                            title="Remove email"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="btn small"
+                    onClick={() => addEmail(r.id)}
+                  >
+                    + Add email
+                  </button>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </section>
 
           <section className="review-section">
@@ -236,7 +314,8 @@ export default function ReviewModal({
               !form.role.trim() ||
               !form.subject.trim() ||
               !form.coverLetter.trim() ||
-              form.recipients.some((r) => !r.email.trim())
+              !allEmailsFilled ||
+              form.recipients.length === 0
             }
           >
             Save & mark reviewed
@@ -255,6 +334,10 @@ function buildFormState(application) {
     subject: application.subject,
     coverLetter: application.coverLetter,
     body: application.body || '',
-    recipients: rs.map((r) => ({ id: r.id, hrName: r.hrName, email: r.email })),
+    recipients: rs.map((r) => ({
+      id: r.id,
+      hrName: r.hrName,
+      emails: getRecipientEmails(r).map((e) => ({ id: e.id, address: e.address })),
+    })),
   };
 }

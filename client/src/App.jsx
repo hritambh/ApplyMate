@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, isEmailChecking, isGroupGenerating, isRecipientSendable } from './api.js';
+import {
+  api,
+  getRecipientEmails,
+  isEmailChecking,
+  isEmailSendable,
+  isGroupGenerating,
+} from './api.js';
 import ResumeCard from './components/ResumeCard.jsx';
 import BulkAddForm from './components/BulkAddForm.jsx';
 import ApplicationsTable from './components/ApplicationsTable.jsx';
@@ -47,26 +53,28 @@ export default function App() {
     [applications, reviewId],
   );
 
-  const toggleSelect = (recipientId) => {
+  const toggleSelect = (emailId) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(recipientId)) next.delete(recipientId);
-      else next.add(recipientId);
+      if (next.has(emailId)) next.delete(emailId);
+      else next.add(emailId);
       return next;
     });
   };
 
-  const sendableRecipientIds = useMemo(() => {
+  const sendableEmailIds = useMemo(() => {
     const ids = [];
     for (const g of applications) {
       for (const r of g.recipients || []) {
-        if (isRecipientSendable(g, r)) ids.push(r.id);
+        for (const e of getRecipientEmails(r)) {
+          if (isEmailSendable(g, e)) ids.push(e.id);
+        }
       }
     }
     return ids;
   }, [applications]);
 
-  const selectAll = () => setSelected(new Set(sendableRecipientIds));
+  const selectAll = () => setSelected(new Set(sendableEmailIds));
   const clearSelection = () => setSelected(new Set());
 
   const handleBulkAdd = async (companies) => {
@@ -76,8 +84,8 @@ export default function App() {
       const res = await api.createApplications(companies);
       setShowBulk(false);
       const groupCount = res.applications?.length ?? 0;
-      const hrCount = companies.length;
-      let text = `Added ${hrCount} HR contact(s) across ${groupCount} company application(s). Cover letters are generating…`;
+      const emailCount = companies.reduce((n, c) => n + (c.emails?.length || (c.email ? 1 : 0)), 0);
+      let text = `Added ${emailCount} email(s) across ${groupCount} company application(s). Cover letters are generating…`;
       if (res.message) text += ` ${res.message}`;
       setBanner({ kind: 'info', text });
       await refresh();
@@ -89,9 +97,9 @@ export default function App() {
   };
 
   const handleSendSelected = async () => {
-    const ids = [...selected].filter((id) => sendableRecipientIds.includes(id));
+    const ids = [...selected].filter((id) => sendableEmailIds.includes(id));
     if (ids.length === 0) {
-      setBanner({ kind: 'error', text: 'Select at least one recipient that is ready to send.' });
+      setBanner({ kind: 'error', text: 'Select at least one email that is ready to send.' });
       return;
     }
     if (!resume) {
@@ -156,7 +164,9 @@ export default function App() {
       setSelected((prev) => {
         const group = applications.find((g) => g.id === groupId);
         const next = new Set(prev);
-        for (const r of group?.recipients || []) next.delete(r.id);
+        for (const r of group?.recipients || []) {
+          for (const e of getRecipientEmails(r)) next.delete(e.id);
+        }
         return next;
       });
       await refresh();
@@ -170,8 +180,25 @@ export default function App() {
     try {
       await api.deleteRecipient(groupId, recipientId);
       setSelected((prev) => {
+        const group = applications.find((g) => g.id === groupId);
         const next = new Set(prev);
-        next.delete(recipientId);
+        const r = group?.recipients?.find((x) => x.id === recipientId);
+        for (const e of getRecipientEmails(r)) next.delete(e.id);
+        return next;
+      });
+      await refresh();
+    } catch (err) {
+      setBanner({ kind: 'error', text: err.message });
+    }
+  };
+
+  const handleDeleteEmail = async (groupId, recipientId, emailId) => {
+    if (!confirm('Remove this email address?')) return;
+    try {
+      await api.deleteEmail(groupId, recipientId, emailId);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(emailId);
         return next;
       });
       await refresh();
@@ -184,10 +211,12 @@ export default function App() {
     const c = { pending: 0, reviewed: 0, sent: 0, failed: 0 };
     for (const g of applications) {
       for (const r of g.recipients || []) {
-        if (r.status === 'sent') c.sent++;
-        else if (r.status === 'failed') c.failed++;
-        else if (g.status === 'reviewed') c.reviewed++;
-        else c.pending++;
+        for (const e of getRecipientEmails(r)) {
+          if (e.status === 'sent') c.sent++;
+          else if (e.status === 'failed') c.failed++;
+          else if (g.status === 'reviewed') c.reviewed++;
+          else c.pending++;
+        }
       }
     }
     return c;
@@ -250,8 +279,8 @@ export default function App() {
               <Stat label="Failed" value={counts.failed} kind="failed" />
             </div>
             <p className="hint">
-              Workflow: <strong>Generate → Review/Edit → Approve → Send</strong>. Multiple HRs at
-              the same company share one AI-generated cover letter.
+              Workflow: <strong>Generate → Review/Edit → Approve → Send</strong>. Multiple HRs and
+              multiple emails per HR share one AI-generated cover letter per company + role.
             </p>
           </div>
         </section>
@@ -260,7 +289,7 @@ export default function App() {
           <button className="btn primary" onClick={() => setShowBulk(true)}>
             + Add companies
           </button>
-          <button className="btn" onClick={selectAll} disabled={!sendableRecipientIds.length}>
+          <button className="btn" onClick={selectAll} disabled={!sendableEmailIds.length}>
             Select all ready
           </button>
           <button className="btn" onClick={clearSelection} disabled={!selected.size}>
@@ -284,6 +313,7 @@ export default function App() {
           onRegenerate={handleRegenerate}
           onDeleteGroup={handleDeleteGroup}
           onDeleteRecipient={handleDeleteRecipient}
+          onDeleteEmail={handleDeleteEmail}
         />
       </main>
 
@@ -298,8 +328,8 @@ export default function App() {
           onClose={() => setReviewId(null)}
           onSave={handleSaveReview}
           onRegenerate={() => handleRegenerate(reviewTarget.id)}
-          onRevalidateEmail={async (groupId, recipientId) => {
-            await api.validateRecipientEmail(groupId, recipientId);
+          onRevalidateEmail={async (groupId, recipientId, emailId) => {
+            await api.validateEmail(groupId, recipientId, emailId);
             await refresh();
           }}
         />

@@ -10,8 +10,8 @@ const FLAT_EXAMPLE = `[
   {
     "company": "ABC Technologies",
     "role": "Backend Developer",
-    "hrName": "Jane Smith",
-    "email": "jane@abc.com"
+    "hrName": "John Doe",
+    "emails": ["john.personal@abc.com", "john.work@abc.com"]
   }
 ]`;
 
@@ -20,13 +20,16 @@ const GROUPED_EXAMPLE = `[
     "company": "ABC Technologies",
     "role": "Backend Developer",
     "contacts": [
-      { "hrName": "John Doe", "email": "john@abc.com" },
+      {
+        "hrName": "John Doe",
+        "emails": ["john@abc.com", "john.alt@abc.com"]
+      },
       { "hrName": "Jane Smith", "email": "jane@abc.com" }
     ]
   }
 ]`;
 
-const BLANK_CONTACT = { hrName: '', email: '' };
+const BLANK_CONTACT = { hrName: '', emails: [''] };
 
 const DEFAULT_ROLE = 'Backend Developer';
 
@@ -35,8 +38,14 @@ function newCompany() {
     id: crypto.randomUUID?.() ?? String(Date.now() + Math.random()),
     company: '',
     role: DEFAULT_ROLE,
-    contacts: [{ ...BLANK_CONTACT }],
+    contacts: [{ hrName: '', emails: [''] }],
   };
+}
+
+function contactEmails(contact) {
+  return (contact.emails || [])
+    .map((x) => String(x).trim())
+    .filter(Boolean);
 }
 
 function flattenCompanies(companyBlocks) {
@@ -45,7 +54,7 @@ function flattenCompanies(companyBlocks) {
     const company = block.company.trim();
     const role = block.role.trim();
     const filledContacts = block.contacts.filter(
-      (c) => c.hrName.trim() || c.email.trim(),
+      (c) => c.hrName.trim() || contactEmails(c).length > 0,
     );
 
     if (!company && !role && filledContacts.length === 0) continue;
@@ -59,15 +68,31 @@ function flattenCompanies(companyBlocks) {
     }
 
     for (const c of filledContacts) {
+      const emails = contactEmails(c);
+      if (emails.length === 0) {
+        throw new Error(
+          company
+            ? `Add at least one email for ${c.hrName.trim() || 'each HR contact'} at ${company}`
+            : 'Add at least one email per HR contact',
+        );
+      }
       out.push({
         company,
         role,
         hrName: c.hrName.trim(),
-        email: c.email.trim(),
+        emails,
       });
     }
   }
   return out;
+}
+
+function parseContactEmails(c) {
+  if (Array.isArray(c.emails)) {
+    return c.emails.map((x) => String(x).trim()).filter(Boolean);
+  }
+  if (c.email) return [String(c.email).trim()];
+  return [];
 }
 
 function parseJsonEntries(parsed) {
@@ -79,19 +104,24 @@ function parseJsonEntries(parsed) {
       const company = String(item.company || '').trim();
       const role = String(item.role || '').trim();
       for (const c of item.contacts) {
+        const emails = parseContactEmails(c);
+        if (emails.length === 0) continue;
         out.push({
           company,
           role,
           hrName: String(c.hrName || '').trim(),
-          email: String(c.email || '').trim(),
+          emails,
         });
       }
     } else {
+      const emails = parseContactEmails(item);
+      if (emails.length === 0 && item.email) emails.push(String(item.email).trim());
+      if (emails.length === 0) continue;
       out.push({
         company: String(item.company || '').trim(),
         role: String(item.role || '').trim(),
         hrName: String(item.hrName || '').trim(),
-        email: String(item.email || '').trim(),
+        emails,
       });
     }
   }
@@ -102,24 +132,29 @@ function validateEntries(companies) {
   if (companies.length === 0) throw new Error('Add at least one company with one HR contact');
 
   const blocks = new Map();
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   for (const c of companies) {
     if (!c.company || !c.role) {
       throw new Error('Every company needs a name and role');
     }
-    if (!c.email) {
-      throw new Error(`Add an email for every HR contact at ${c.company}`);
-    }
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRe.test(c.email)) {
-      throw new Error(`Invalid email: ${c.email}`);
+    if (!c.emails?.length) {
+      throw new Error(`Add at least one email for every HR contact at ${c.company}`);
     }
     const key = `${c.company.toLowerCase()}::${c.role.toLowerCase()}`;
     if (!blocks.has(key)) blocks.set(key, new Set());
-    const emails = blocks.get(key);
-    if (emails.has(c.email.toLowerCase())) {
-      throw new Error(`Duplicate email ${c.email} for ${c.company}`);
+    const seen = blocks.get(key);
+
+    for (const addr of c.emails) {
+      if (!emailRe.test(addr)) {
+        throw new Error(`Invalid email: ${addr}`);
+      }
+      const lower = addr.toLowerCase();
+      if (seen.has(lower)) {
+        throw new Error(`Duplicate email ${addr} for ${c.company}`);
+      }
+      seen.add(lower);
     }
-    emails.add(c.email.toLowerCase());
   }
 }
 
@@ -148,7 +183,7 @@ export default function BulkAddForm({ onClose, onSubmit, busy }) {
     setCompanyBlocks((blocks) =>
       blocks.map((b) =>
         b.id === companyId
-          ? { ...b, contacts: [...b.contacts, { ...BLANK_CONTACT }] }
+          ? { ...b, contacts: [...b.contacts, { hrName: '', emails: [''] }] }
           : b,
       ),
     );
@@ -176,6 +211,57 @@ export default function BulkAddForm({ onClose, onSubmit, busy }) {
           contacts: b.contacts.map((c, i) =>
             i === contactIndex ? { ...c, [key]: value } : c,
           ),
+        };
+      }),
+    );
+  };
+
+  const addContactEmail = (companyId, contactIndex) => {
+    setCompanyBlocks((blocks) =>
+      blocks.map((b) => {
+        if (b.id !== companyId) return b;
+        return {
+          ...b,
+          contacts: b.contacts.map((c, i) =>
+            i === contactIndex ? { ...c, emails: [...c.emails, ''] } : c,
+          ),
+        };
+      }),
+    );
+  };
+
+  const removeContactEmail = (companyId, contactIndex, emailIndex) => {
+    setCompanyBlocks((blocks) =>
+      blocks.map((b) => {
+        if (b.id !== companyId) return b;
+        return {
+          ...b,
+          contacts: b.contacts.map((c, i) => {
+            if (i !== contactIndex) return c;
+            if (c.emails.length === 1) return c;
+            return {
+              ...c,
+              emails: c.emails.filter((_, ei) => ei !== emailIndex),
+            };
+          }),
+        };
+      }),
+    );
+  };
+
+  const updateContactEmail = (companyId, contactIndex, emailIndex, value) => {
+    setCompanyBlocks((blocks) =>
+      blocks.map((b) => {
+        if (b.id !== companyId) return b;
+        return {
+          ...b,
+          contacts: b.contacts.map((c, i) => {
+            if (i !== contactIndex) return c;
+            return {
+              ...c,
+              emails: c.emails.map((em, ei) => (ei === emailIndex ? value : em)),
+            };
+          }),
         };
       }),
     );
@@ -223,16 +309,14 @@ export default function BulkAddForm({ onClose, onSubmit, busy }) {
           {mode === 'form' ? (
             <div className="company-blocks">
               <p className="hint">
-                Add a company and role once, then list every HR contact for that company below it.
-                One cover letter is generated per company.
+                Add a company and role once, then list HR contacts. Each contact can have multiple
+                email addresses — each is validated and sent separately.
               </p>
 
               {companyBlocks.map((block, blockIndex) => (
                 <div className="company-card" key={block.id}>
                   <div className="company-card-header">
-                    <span className="company-card-title">
-                      Company {blockIndex + 1}
-                    </span>
+                    <span className="company-card-title">Company {blockIndex + 1}</span>
                     <button
                       type="button"
                       className="btn small danger-ghost"
@@ -266,37 +350,56 @@ export default function BulkAddForm({ onClose, onSubmit, busy }) {
                   <div className="contacts-section">
                     <span className="section-label">HR contacts</span>
                     {block.contacts.map((contact, ci) => (
-                      <div className="contact-row" key={ci}>
+                      <div className="contact-card" key={ci}>
                         <input
+                          className="contact-name"
                           placeholder="HR name (optional)"
                           value={contact.hrName}
                           onChange={(e) =>
                             updateContact(block.id, ci, 'hrName', e.target.value)
                           }
                         />
-                        <input
-                          placeholder="HR email"
-                          value={contact.email}
-                          onChange={(e) =>
-                            updateContact(block.id, ci, 'email', e.target.value)
-                          }
-                        />
+                        <div className="contact-emails">
+                          {contact.emails.map((em, ei) => (
+                            <div className="contact-email-row" key={ei}>
+                              <input
+                                placeholder="HR email"
+                                value={em}
+                                onChange={(e) =>
+                                  updateContactEmail(block.id, ci, ei, e.target.value)
+                                }
+                              />
+                              <button
+                                type="button"
+                                className="btn danger-ghost"
+                                onClick={() => removeContactEmail(block.id, ci, ei)}
+                                disabled={contact.emails.length === 1}
+                                title="Remove email"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            className="btn small ghost"
+                            onClick={() => addContactEmail(block.id, ci)}
+                          >
+                            + Add email
+                          </button>
+                        </div>
                         <button
                           type="button"
-                          className="btn danger-ghost"
+                          className="btn small danger-ghost remove-contact"
                           onClick={() => removeContact(block.id, ci)}
                           disabled={block.contacts.length === 1}
                           title="Remove contact"
                         >
-                          ×
+                          Remove contact
                         </button>
                       </div>
                     ))}
-                    <button
-                      type="button"
-                      className="btn small"
-                      onClick={() => addContact(block.id)}
-                    >
+                    <button type="button" className="btn small" onClick={() => addContact(block.id)}>
                       + Add contact
                     </button>
                   </div>
@@ -310,10 +413,11 @@ export default function BulkAddForm({ onClose, onSubmit, busy }) {
           ) : (
             <>
               <p className="hint">
-                Grouped format (recommended):{' '}
-                <code>{`{ company, role, contacts: [{ hrName, email }] }`}</code>
+                Grouped format:{' '}
+                <code>{`{ company, role, contacts: [{ hrName, emails: [...] }] }`}</code>
                 <br />
-                Flat format also works: repeat company + role per contact.
+                Single <code>email</code> per contact still works. Flat rows can use{' '}
+                <code>emails</code> array too.
               </p>
               <textarea
                 className="json-input"
