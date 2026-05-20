@@ -9,7 +9,8 @@ client/dist/
 .env.*
 !.env.example
 
-# Local data (applications DB, resume files, send history)
+# Uploaded resume files (keep db + history tracked in server/data and server/history.json)
+server/uploads/*
 !server/uploads/.gitkeep
 
 # Logs & OS

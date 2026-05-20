@@ -1,0 +1,79 @@
+{
+  "resume": {
+    "filename": "resume-1779278916113.pdf",
+    "originalName": "Hritambh_Resume_1.pdf",
+    "mimeType": "application/pdf",
+    "size": 118698,
+    "uploadedAt": "2026-05-20T12:08:36.131Z"
+  },
+  "applications": [
+    {
+      "id": "uvqdYj40rm",
+      "company": "LSG",
+      "role": "Graphic Designer",
+      "coverLetter": "I came across the job opening for the Graphic Designer role at LSG, and it seems like a great fit for my background and skills. With 4.5 years of experience as a Backend Engineer, I have a solid foundation in various technologies such as Node.js, TypeScript, and Java, which I believe can complement the creative aspects of this role. \n\nIn my last position at Neutrinos, I was the founding engineer and played a key role in building our entire product line from scratch. This experience not only honed my technical skills but also enhanced my ability to think creatively and collaboratively. I am confident that my technical expertise, combined with my passion for design, would make me a valuable asset to your team.\n\nI am enthusiastic about the opportunity to contribute to LSG and would love to discuss how my background aligns with your needs. Thank you for considering my application. I look forward to hearing from you soon.",
+      "subject": "Application for Graphic Designer — Hritambh Hritvij",
+      "body": "",
+      "status": "sent",
+      "error": null,
+      "createdAt": "2026-05-20T22:34:16.574Z",
+      "updatedAt": "2026-05-20T22:34:40.848Z",
+      "recipients": [
+        {
+          "id": "02vvAdwk",
+          "hrName": "LSG Hritambh",
+          "email": "hritambh9@gmail.com",
+          "status": "sent",
+          "error": null,
+          "sentAt": "2026-05-20T22:34:36.745Z",
+          "emailValidation": "valid",
+          "emailValidationMessage": "Email appears reachable"
+        },
+        {
+          "id": "eXqVeoep",
+          "hrName": "LSG BC2626",
+          "email": "bc26267926@gmail.com",
+          "status": "sent",
+          "error": null,
+          "sentAt": "2026-05-20T22:34:40.848Z",
+          "emailValidation": "valid",
+          "emailValidationMessage": "Email appears reachable"
+        }
+      ]
+    },
+    {
+      "id": "pSn9V-a0l0",
+      "company": "KKR",
+      "role": "Backend Developer",
+      "coverLetter": "I came across the opening for the Backend Developer role at KKR, and it seems like a great fit for me. With 4.5 years of experience as a Backend Engineer, I have honed my skills in Node.js and Java, developing robust applications and services. In my last role at Neutrinos, I was the founding engineer and built the entire product line from scratch, which gave me hands-on experience with technologies such as Nest.js, Spring Boot, AWS, and PostgreSQL.\n\nI believe my background in microservices, RESTful APIs, and cloud technologies positions me well to contribute to your team. I am particularly drawn to KKR's commitment to innovation and excellence, and I would love the opportunity to discuss how I can bring value to your projects.\n\nI look forward to the possibility of discussing this role further and hope to hear from you soon.",
+      "subject": "Application for Backend Developer — Hritambh Hritvij",
+      "body": "",
+      "status": "sent",
+      "error": null,
+      "createdAt": "2026-05-20T22:34:16.574Z",
+      "updatedAt": "2026-05-20T22:34:48.852Z",
+      "recipients": [
+        {
+          "id": "77V1SHUc",
+          "hrName": "KKR Hritambh",
+          "email": "hritambh9@gmail.com",
+          "status": "sent",
+          "error": null,
+          "sentAt": "2026-05-20T22:34:44.809Z",
+          "emailValidation": "valid",
+          "emailValidationMessage": "Email appears reachable"
+        },
+        {
+          "id": "_Dvy3aRa",
+          "hrName": "KKR BC2626",
+          "email": "bc26267926@gmail.com",
+          "status": "sent",
+          "error": null,
+          "sentAt": "2026-05-20T22:34:48.852Z",
+          "emailValidation": "valid",
+          "emailValidationMessage": "Email appears reachable"
+        }
+      ]
+    }
+  ]
+}
