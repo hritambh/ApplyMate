@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build
+client/dist/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Local data (applications DB, resume files, send history)
+server/data/
+server/uploads/*
+!server/uploads/.gitkeep
+server/history.json
+
+# Logs & OS
+*.log
+.DS_Store
