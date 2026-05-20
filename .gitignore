@@ -10,10 +10,7 @@ client/dist/
 !.env.example
 
 # Local data (applications DB, resume files, send history)
-server/data/
-server/uploads/*
 !server/uploads/.gitkeep
-server/history.json
 
 # Logs & OS
 *.log
