@@ -21,6 +21,7 @@ export default function ProfileSetup({
   initialProfile,
   onComplete,
   onCancel,
+  onBackToSignIn,
   banner,
   setBanner,
   required = true,
@@ -314,6 +315,11 @@ export default function ProfileSetup({
             {!required && onCancel && (
               <button type="button" className="btn ghost" onClick={onCancel} disabled={busy}>
                 Cancel
+              </button>
+            )}
+            {required && onBackToSignIn && (
+              <button type="button" className="btn ghost" onClick={onBackToSignIn} disabled={busy}>
+                Back to sign in
               </button>
             )}
             <button type="button" className="btn ghost" onClick={handleTestSmtp} disabled={busy || testing}>

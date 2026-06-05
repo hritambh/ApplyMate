@@ -28,6 +28,8 @@ export default function App() {
   const [userRole, setUserRole] = useState(() => localStorage.getItem('applymate_role') || 'user');
   const [profileLoading, setProfileLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   // --- Dashboard State ---
   const [health, setHealth] = useState(null);
@@ -48,6 +50,8 @@ export default function App() {
     setProfile(null);
     setProfileComplete(false);
     setShowSettings(false);
+    setShowAdmin(false);
+    setPendingApprovals(0);
     setApplications([]);
     setResume(null);
     setUserRole('user');
@@ -166,12 +170,29 @@ export default function App() {
     }
   }, [handleSessionExpired]);
 
+  const refreshPendingApprovals = useCallback(async () => {
+    if (userRole !== 'su') return;
+    try {
+      const res = await api.listSubscriptions();
+      setPendingApprovals((res.subscriptions || []).filter((s) => s.status === 'pending').length);
+    } catch {
+      // Non-critical: leave the badge as-is on failure
+    }
+  }, [userRole]);
+
   // Load profile when authenticated
   useEffect(() => {
     if (isAuthenticated) {
       loadProfile();
     }
   }, [isAuthenticated, loadProfile]);
+
+  // Keep the top-bar approvals badge in sync for superusers
+  useEffect(() => {
+    if (isAuthenticated && profileComplete && userRole === 'su') {
+      refreshPendingApprovals();
+    }
+  }, [isAuthenticated, profileComplete, userRole, refreshPendingApprovals]);
 
   // Only fetch dashboard data when profile is complete
   useEffect(() => {
@@ -442,9 +463,54 @@ export default function App() {
         required={!profileComplete}
         onComplete={handleProfileComplete}
         onCancel={profileComplete ? () => setShowSettings(false) : undefined}
+        onBackToSignIn={!profileComplete ? handleLogout : undefined}
         banner={banner}
         setBanner={setBanner}
       />
+    );
+  }
+
+  if (userRole === 'su' && showAdmin) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <div className="brand">
+            <span className="logo">✉︎</span>
+            <div>
+              <h1>Approvals</h1>
+              <p className="tagline">Review OpenAI shared-access requests</p>
+            </div>
+          </div>
+          <div className="health">
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={() => {
+                setShowAdmin(false);
+                refreshPendingApprovals();
+              }}
+            >
+              ← Back to dashboard
+            </button>
+          </div>
+        </header>
+
+        {banner && (
+          <div className={`banner banner-${banner.kind}`}>
+            <span>{banner.text}</span>
+            <button className="link" onClick={() => setBanner(null)}>
+              dismiss
+            </button>
+          </div>
+        )}
+
+        <main className="content">
+          <AdminPanel
+            onError={(msg) => setBanner({ kind: 'error', text: msg })}
+            onPendingChange={setPendingApprovals}
+          />
+        </main>
+      </div>
     );
   }
 
@@ -482,6 +548,43 @@ export default function App() {
             <span className="pill pill-ok" title="Superuser">
               <span className="dot" /> SU
             </span>
+          )}
+          {userRole === 'su' && (
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={() => setShowAdmin(true)}
+              title={
+                pendingApprovals > 0
+                  ? `${pendingApprovals} pending approval${pendingApprovals > 1 ? 's' : ''}`
+                  : 'No pending approvals'
+              }
+              style={{ marginLeft: 8, position: 'relative' }}
+            >
+              Approvals
+              {pendingApprovals > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    minWidth: 18,
+                    height: 18,
+                    padding: '0 5px',
+                    background: '#ef4444',
+                    color: 'white',
+                    borderRadius: 9,
+                    fontSize: 11,
+                    lineHeight: '18px',
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    boxShadow: '0 0 0 2px #fff',
+                  }}
+                >
+                  {pendingApprovals}
+                </span>
+              )}
+            </button>
           )}
           <button
             type="button"
@@ -542,10 +645,6 @@ export default function App() {
       )}
 
       <main className="content">
-        {userRole === 'su' && (
-          <AdminPanel onError={(msg) => setBanner({ kind: 'error', text: msg })} />
-        )}
-
         <section className="grid">
           <ResumeCard
             resume={resume}

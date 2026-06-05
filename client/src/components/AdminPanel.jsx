@@ -4,7 +4,7 @@ import { api } from '../api.js';
 const STATUS_LABEL = { pending: 'Pending', approved: 'Approved', denied: 'Denied' };
 const STATUS_CLASS = { pending: 'badge-pending', approved: 'badge-sent', denied: 'badge-failed' };
 
-export default function AdminPanel({ onError }) {
+export default function AdminPanel({ onError, onPendingChange }) {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null); // id of item being actioned
@@ -14,13 +14,15 @@ export default function AdminPanel({ onError }) {
   const load = useCallback(async () => {
     try {
       const res = await api.listSubscriptions();
-      setSubscriptions(res.subscriptions || []);
+      const subs = res.subscriptions || [];
+      setSubscriptions(subs);
+      onPendingChange?.(subs.filter((s) => s.status === 'pending').length);
     } catch (err) {
       onError?.(err.message);
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, [onError, onPendingChange]);
 
   useEffect(() => { load(); }, [load]);
 
