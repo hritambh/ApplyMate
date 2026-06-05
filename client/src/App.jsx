@@ -3,50 +3,180 @@ import {
   api,
   getRecipientEmails,
   isEmailChecking,
+  isEmailFollowUpable,
   isEmailSendable,
   isGroupGenerating,
+  isUnauthorized,
+  onApiError,
 } from './api.js';
 import ResumeCard from './components/ResumeCard.jsx';
 import BulkAddForm from './components/BulkAddForm.jsx';
 import ApplicationsTable from './components/ApplicationsTable.jsx';
 import ReviewModal from './components/ReviewModal.jsx';
+import AuthScreen from './components/AuthScreen.jsx';
+import ProfileSetup from './components/ProfileSetup.jsx';
 
 export default function App() {
+  // --- Auth State ---
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('applymate_token'));
+
+  // --- Profile State ---
+  const [profile, setProfile] = useState(null);
+  const [profileComplete, setProfileComplete] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // --- Dashboard State ---
   const [health, setHealth] = useState(null);
   const [resume, setResume] = useState(null);
   const [applications, setApplications] = useState([]);
   const [selected, setSelected] = useState(() => new Set());
+  const [selectedFollowUps, setSelectedFollowUps] = useState(() => new Set());
   const [showBulk, setShowBulk] = useState(false);
   const [reviewId, setReviewId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [h, r, a] = await Promise.all([
-        api.health(),
-        api.getResume(),
-        api.listApplications(),
-      ]);
-      setHealth(h);
-      setResume(r.resume);
-      setApplications(a.applications);
-    } catch (err) {
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('applymate_token');
+    setIsAuthenticated(false);
+    setProfile(null);
+    setProfileComplete(false);
+    setShowSettings(false);
+    setApplications([]);
+    setResume(null);
+  }, []);
+
+  const handleSessionExpired = useCallback(
+    (message = 'Session expired. Please sign in again.') => {
+      handleLogout();
+      setBanner({ kind: 'error', text: message });
+    },
+    [handleLogout],
+  );
+
+  // Global API error interceptor — logs in api.js, shows banner here
+  useEffect(() => {
+    return onApiError((err) => {
+      if (isUnauthorized(err)) {
+        handleSessionExpired(err.message);
+        return;
+      }
       setBanner({ kind: 'error', text: err.message });
+    });
+  }, [handleSessionExpired]);
+
+  // Intercept Google OAuth token or error from the URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const authError = params.get('auth_error');
+
+    if (authError) {
+      console.error('[oauth] Sign-in failed:', authError);
+      setBanner({ kind: 'error', text: `Google sign-in failed: ${authError}` });
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (token) {
+      localStorage.setItem('applymate_token', token);
+      setIsAuthenticated(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
 
+  const handleAuthSuccess = (token) => {
+    localStorage.setItem('applymate_token', token);
+    setIsAuthenticated(true);
+    setBanner(null);
+  };
+
+  const loadProfile = useCallback(async () => {
+    setProfileLoading(true);
+    try {
+      const res = await api.getProfile();
+      setProfile(res.profile);
+      setProfileComplete(Boolean(res.complete));
+      return res;
+    } catch (err) {
+      if (isUnauthorized(err)) {
+        handleSessionExpired(err.message);
+      } else {
+        setBanner({ kind: 'error', text: err.message });
+      }
+      return null;
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [handleSessionExpired]);
+
+  const handleProfileComplete = (updatedProfile) => {
+    setProfile(updatedProfile);
+    setProfileComplete(Boolean(updatedProfile?.complete));
+    setShowSettings(false);
+    setBanner(null);
+  };
+
+  const refresh = useCallback(async () => {
+    const [healthRes, resumeRes, appsRes] = await Promise.allSettled([
+      api.health(),
+      api.getResume(),
+      api.listApplications(),
+    ]);
+
+    if (healthRes.status === 'fulfilled') {
+      setHealth(healthRes.value);
+    }
+
+    if (resumeRes.status === 'fulfilled') {
+      setResume(resumeRes.value.resume ?? null);
+    }
+
+    if (appsRes.status === 'fulfilled') {
+      setApplications(appsRes.value.applications ?? []);
+    } else {
+      const err = appsRes.reason;
+      if (isUnauthorized(err)) {
+        handleSessionExpired(err.message);
+      } else {
+        setBanner({ kind: 'error', text: err?.message || 'Failed to load applications' });
+      }
+      return;
+    }
+
+    const failed = [healthRes, resumeRes].filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      const message = failed[0].reason?.message;
+      if (message && !isUnauthorized(failed[0].reason)) {
+        console.warn('Partial refresh failure:', message);
+      }
+    }
+  }, [handleSessionExpired]);
+
+  // Load profile when authenticated
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (isAuthenticated) {
+      loadProfile();
+    }
+  }, [isAuthenticated, loadProfile]);
+
+  // Only fetch dashboard data when profile is complete
+  useEffect(() => {
+    if (isAuthenticated && profileComplete && !showSettings) {
+      refresh();
+    }
+  }, [refresh, isAuthenticated, profileComplete, showSettings]);
 
   useEffect(() => {
-    const busy =
+    if (!isAuthenticated || !profileComplete || showSettings) return;
+
+    const isBusy =
       applications.some((g) => isGroupGenerating(g)) || isEmailChecking(applications);
-    if (!busy) return;
+    if (!isBusy) return;
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
-  }, [applications, refresh]);
+  }, [applications, refresh, isAuthenticated, profileComplete, showSettings]);
 
   const reviewTarget = useMemo(
     () => applications.find((a) => a.id === reviewId) || null,
@@ -55,6 +185,15 @@ export default function App() {
 
   const toggleSelect = (emailId) => {
     setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(emailId)) next.delete(emailId);
+      else next.add(emailId);
+      return next;
+    });
+  };
+
+  const toggleSelectFollowUp = (emailId) => {
+    setSelectedFollowUps((prev) => {
       const next = new Set(prev);
       if (next.has(emailId)) next.delete(emailId);
       else next.add(emailId);
@@ -74,8 +213,23 @@ export default function App() {
     return ids;
   }, [applications]);
 
+  const followUpableEmailIds = useMemo(() => {
+    const ids = [];
+    for (const g of applications) {
+      for (const r of g.recipients || []) {
+        for (const e of getRecipientEmails(r)) {
+          if (isEmailFollowUpable(e)) ids.push(e.id);
+        }
+      }
+    }
+    return ids;
+  }, [applications]);
+
   const selectAll = () => setSelected(new Set(sendableEmailIds));
-  const clearSelection = () => setSelected(new Set());
+  const clearSelection = () => {
+    setSelected(new Set());
+    setSelectedFollowUps(new Set());
+  };
 
   const handleBulkAdd = async (companies) => {
     setBusy(true);
@@ -128,6 +282,34 @@ export default function App() {
     }
   };
 
+  const handleSendFollowUps = async () => {
+    const ids = [...selectedFollowUps].filter((id) => followUpableEmailIds.includes(id));
+    if (ids.length === 0) {
+      setBanner({ kind: 'error', text: 'Select at least one sent email to follow up on.' });
+      return;
+    }
+    if (!confirm(`Send ${ids.length} follow-up email(s)? They will be sent as replies in the same thread.`))
+      return;
+
+    setBusy(true);
+    setBanner(null);
+    try {
+      const { results } = await api.sendFollowUps(ids);
+      const sent = results.filter((r) => r.ok && !r.skipped).length;
+      const failed = results.filter((r) => !r.ok).length;
+      setBanner({
+        kind: failed ? 'error' : 'success',
+        text: `Follow-ups sent: ${sent}. Failed: ${failed}.`,
+      });
+      setSelectedFollowUps(new Set());
+      await refresh();
+    } catch (err) {
+      setBanner({ kind: 'error', text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSaveReview = async (form) => {
     if (!reviewTarget) return;
     try {
@@ -143,6 +325,7 @@ export default function App() {
       await api.markReviewed(reviewTarget.id);
       await refresh();
       setReviewId(null);
+      setBanner({ kind: 'success', text: `Application for ${reviewTarget.company} marked as reviewed.` });
     } catch (err) {
       setBanner({ kind: 'error', text: err.message });
     }
@@ -222,6 +405,43 @@ export default function App() {
     return c;
   }, [applications]);
 
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        onAuthSuccess={handleAuthSuccess}
+        banner={banner}
+        setBanner={setBanner}
+      />
+    );
+  }
+
+  if (profileLoading && !profile) {
+    return (
+      <div className="auth-page">
+        <p className="auth-subtitle">Loading profile…</p>
+      </div>
+    );
+  }
+
+  if (!profileComplete || showSettings) {
+    return (
+      <ProfileSetup
+        initialProfile={profile}
+        required={!profileComplete}
+        onComplete={handleProfileComplete}
+        onCancel={profileComplete ? () => setShowSettings(false) : undefined}
+        banner={banner}
+        setBanner={setBanner}
+      />
+    );
+  }
+
+  const applicant = {
+    name: profile?.applicantName || '',
+    phone: profile?.applicantPhone || '',
+  };
+
+  // --- Render Dashboard ---
   return (
     <div className="app">
       <header className="topbar">
@@ -234,7 +454,31 @@ export default function App() {
         </div>
         <div className="health">
           <HealthDot ok={health?.openaiConfigured} label="OpenAI" />
-          <HealthDot ok={health?.smtpConfigured} label="SMTP" />
+          <HealthDot ok={profile?.smtpPassConfigured && profile?.smtpHost} label="SMTP" />
+          <HealthDot ok={profileComplete} label="Profile" />
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => setShowSettings(true)}
+            style={{ marginLeft: 8 }}
+          >
+            Settings
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{
+              marginLeft: '8px',
+              padding: '6px 12px',
+              background: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '500',
+            }}
+          >
+            Logout
+          </button>
         </div>
       </header>
 
@@ -292,10 +536,20 @@ export default function App() {
           <button className="btn" onClick={selectAll} disabled={!sendableEmailIds.length}>
             Select all ready
           </button>
-          <button className="btn" onClick={clearSelection} disabled={!selected.size}>
+          <button className="btn" onClick={clearSelection} disabled={!selected.size && !selectedFollowUps.size}>
             Clear selection
           </button>
           <div className="spacer" />
+          {selectedFollowUps.size > 0 && (
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={handleSendFollowUps}
+              style={{ background: '#7c3aed', color: 'white' }}
+            >
+              Send follow-ups ({selectedFollowUps.size})
+            </button>
+          )}
           <button
             className="btn success"
             disabled={!selected.size || busy}
@@ -308,7 +562,9 @@ export default function App() {
         <ApplicationsTable
           applications={applications}
           selected={selected}
+          selectedFollowUps={selectedFollowUps}
           onToggleSelect={toggleSelect}
+          onToggleFollowUp={toggleSelectFollowUp}
           onReview={(groupId) => setReviewId(groupId)}
           onRegenerate={handleRegenerate}
           onDeleteGroup={handleDeleteGroup}
@@ -324,7 +580,7 @@ export default function App() {
       {reviewTarget && (
         <ReviewModal
           application={reviewTarget}
-          applicant={health?.applicant}
+          applicant={applicant}
           onClose={() => setReviewId(null)}
           onSave={handleSaveReview}
           onRegenerate={() => handleRegenerate(reviewTarget.id)}

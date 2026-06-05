@@ -1,66 +1,224 @@
 const BASE = '/api';
 
-async function handle(res) {
-  if (!res.ok) {
-    let msg = `Request failed (${res.status})`;
-    try {
-      const data = await res.json();
-      if (data?.error) msg = data.error;
-    } catch {}
-    throw new Error(msg);
+/** Structured API error thrown for any non-2xx response. */
+export class ApiError extends Error {
+  constructor(message, { status = 0, path = '', method = 'GET', body = null } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.path = path;
+    this.method = method;
+    this.body = body;
   }
-  return res.json();
+}
+
+/** True when the server rejected the session (401). */
+export function isUnauthorized(err) {
+  return err instanceof ApiError && err.status === 401;
+}
+
+const errorListeners = new Set();
+
+/** Subscribe to API failures (non-2xx or network errors). Returns unsubscribe fn. */
+export function onApiError(listener) {
+  errorListeners.add(listener);
+  return () => errorListeners.delete(listener);
+}
+
+function notifyApiError(error, silent) {
+  if (silent) return;
+  for (const listener of errorListeners) {
+    try {
+      listener(error);
+    } catch (listenerErr) {
+      console.error('[api] error listener failed', listenerErr);
+    }
+  }
+}
+
+function logApiFailure({ method, path, status, message, body }) {
+  const payload = { method, path, status, message };
+  if (body && Object.keys(body).length > 0) payload.body = body;
+  if (status >= 500) console.error('[api] server error', payload);
+  else if (status === 401) console.warn('[api] unauthorized', payload);
+  else console.warn('[api] request failed', payload);
+}
+
+async function parseErrorBody(res) {
+  try {
+    return await res.json();
+  } catch {
+    try {
+      const text = await res.text();
+      return text ? { error: text } : {};
+    } catch {
+      return {};
+    }
+  }
+}
+
+async function handleResponse(res, { method, path, silent }) {
+  if (res.ok) {
+    if (res.status === 204) return null;
+    return res.json().catch(() => ({}));
+  }
+
+  const body = await parseErrorBody(res);
+  const message = body.error || body.message || `Request failed (${res.status})`;
+  const error = new ApiError(message, { status: res.status, path, method, body });
+
+  logApiFailure({ method, path, status: res.status, message, body });
+  notifyApiError(error, silent);
+  throw error;
+}
+
+/**
+ * Central fetch wrapper — logs and intercepts all non-2xx responses.
+ * Pass `{ silent: true }` to skip global error listeners (when handling locally).
+ */
+export async function request(path, options = {}) {
+  const { silent, ...fetchOptions } = options;
+  const method = fetchOptions.method || 'GET';
+  const url = `${BASE}${path}`;
+
+  let res;
+  try {
+    res = await fetch(url, fetchOptions);
+  } catch (networkErr) {
+    const message = networkErr.message || 'Network error — is the server running?';
+    const error = new ApiError(message, { status: 0, path: url, method });
+    console.error('[api] network error', { method, path: url, error: message });
+    notifyApiError(error, silent);
+    throw error;
+  }
+
+  return handleResponse(res, { method, path: url, silent });
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('applymate_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function authJsonHeaders() {
+  return { 'Content-Type': 'application/json', ...getAuthHeaders() };
 }
 
 export const api = {
-  health: () => fetch(`${BASE}/health`).then(handle),
+  health: () => request('/health'),
 
-  getResume: () => fetch(`${BASE}/resume`).then(handle),
+  login: (email, password) =>
+    request('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      silent: true,
+    }),
+
+  register: ({ name, email, password }) =>
+    request('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+      silent: true,
+    }),
+
+  getProfile: () => request('/profile', { headers: { ...getAuthHeaders() } }),
+
+  updateProfile: (profile) =>
+    request('/profile', {
+      method: 'PUT',
+      headers: authJsonHeaders(),
+      body: JSON.stringify(profile),
+    }),
+
+  testSmtp: () =>
+    request('/profile/test-smtp', {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+    }),
+
+  getResume: () => request('/resume', { headers: { ...getAuthHeaders() } }),
+
   uploadResume: (file) => {
     const form = new FormData();
     form.append('resume', file);
-    return fetch(`${BASE}/resume`, { method: 'POST', body: form }).then(handle);
+    return request('/resume', {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+      body: form,
+    });
   },
-  deleteResume: () => fetch(`${BASE}/resume`, { method: 'DELETE' }).then(handle),
 
-  listApplications: () => fetch(`${BASE}/applications`).then(handle),
+  deleteResume: () =>
+    request('/resume', { method: 'DELETE', headers: { ...getAuthHeaders() } }),
+
+  listApplications: () =>
+    request('/applications', { headers: { ...getAuthHeaders() } }),
+
   createApplications: (companies) =>
-    fetch(`${BASE}/applications`, {
+    request('/applications', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authJsonHeaders(),
       body: JSON.stringify({ companies }),
-    }).then(handle),
+    }),
+
   updateApplication: (id, patch) =>
-    fetch(`${BASE}/applications/${id}`, {
+    request(`/applications/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authJsonHeaders(),
       body: JSON.stringify(patch),
-    }).then(handle),
+    }),
+
   regenerate: (id) =>
-    fetch(`${BASE}/applications/${id}/regenerate`, { method: 'POST' }).then(handle),
-  markReviewed: (id) =>
-    fetch(`${BASE}/applications/${id}/review`, { method: 'POST' }).then(handle),
-  deleteApplication: (id) =>
-    fetch(`${BASE}/applications/${id}`, { method: 'DELETE' }).then(handle),
-  deleteRecipient: (groupId, recipientId) =>
-    fetch(`${BASE}/applications/${groupId}/recipients/${recipientId}`, {
-      method: 'DELETE',
-    }).then(handle),
-  deleteEmail: (groupId, recipientId, emailId) =>
-    fetch(`${BASE}/applications/${groupId}/recipients/${recipientId}/emails/${emailId}`, {
-      method: 'DELETE',
-    }).then(handle),
-  validateEmail: (groupId, recipientId, emailId) =>
-    fetch(
-      `${BASE}/applications/${groupId}/recipients/${recipientId}/emails/${emailId}/validate-email`,
-      { method: 'POST' },
-    ).then(handle),
-  sendApplications: (ids) =>
-    fetch(`${BASE}/applications/send`, {
+    request(`/applications/${id}/regenerate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...getAuthHeaders() },
+    }),
+
+  markReviewed: (id) =>
+    request(`/applications/${id}/review`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+    }),
+
+  deleteApplication: (id) =>
+    request(`/applications/${id}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeaders() },
+    }),
+
+  deleteRecipient: (groupId, recipientId) =>
+    request(`/applications/${groupId}/recipients/${recipientId}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeaders() },
+    }),
+
+  deleteEmail: (groupId, recipientId, emailId) =>
+    request(`/applications/${groupId}/recipients/${recipientId}/emails/${emailId}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeaders() },
+    }),
+
+  validateEmail: (groupId, recipientId, emailId) =>
+    request(
+      `/applications/${groupId}/recipients/${recipientId}/emails/${emailId}/validate-email`,
+      { method: 'POST', headers: { ...getAuthHeaders() } },
+    ),
+
+  sendApplications: (ids) =>
+    request('/applications/send', {
+      method: 'POST',
+      headers: authJsonHeaders(),
       body: JSON.stringify({ ids }),
-    }).then(handle),
+    }),
+
+  sendFollowUps: (ids) =>
+    request('/applications/send-followups', {
+      method: 'POST',
+      headers: authJsonHeaders(),
+      body: JSON.stringify({ ids }),
+    }),
 };
 
 /** Ensure legacy recipient.email is available as emails[]. */
@@ -98,6 +256,11 @@ export function countGroupEmailsByStatus(group, status) {
   return n;
 }
 
+/** An email is eligible for a follow-up when it was sent and no follow-up has been sent yet. */
+export function isEmailFollowUpable(emailEntry) {
+  return emailEntry.status === 'sent' && emailEntry.followUpStatus !== 'sent';
+}
+
 /** One email entry is sendable when its group has content and it hasn't been sent yet. */
 export function isEmailSendable(group, emailEntry) {
   return (
@@ -109,7 +272,11 @@ export function isEmailSendable(group, emailEntry) {
 }
 
 export function isGroupGenerating(group) {
-  return group.status === 'pending' && !group.coverLetter && !group.error;
+  return (
+    group.status === 'pending' &&
+    !group.coverLetter?.trim() &&
+    !group.error
+  );
 }
 
 export function isEmailChecking(applications) {

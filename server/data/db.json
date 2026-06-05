@@ -1,10 +1,144 @@
 {
   "resume": {
-    "filename": "resume-1779278916113.pdf",
-    "originalName": "Hritambh_Resume_1.pdf",
+    "filename": "resume-1780540451390.pdf",
+    "originalName": "neutrinos_Resume_2.pdf",
     "mimeType": "application/pdf",
-    "size": 118698,
-    "uploadedAt": "2026-05-20T12:08:36.131Z"
+    "size": 121036,
+    "uploadedAt": "2026-06-04T02:34:11.394Z"
   },
-  "applications": []
+  "applications": [
+    {
+      "id": "f_0w3u651-",
+      "company": "Intelo.ai",
+      "role": "Senior Software Engineer",
+      "coverLetter": "I came across the opening for the Senior Software Engineer position at Intelo.ai, and it seems like a great fit for my background and skills. With 4.5 years of experience as a backend engineer, I have honed my expertise in Node.js and Java, along with a strong proficiency in frameworks such as NestJS and SpringBoot. In my most recent role at Neutrinos, I was the founding engineer and played a key role in building the entire product line from scratch, giving me a solid foundation in developing robust microservices and RESTful APIs.\n\nI am particularly drawn to Intelo.ai’s innovative approach and believe I could be a valuable asset to your team. My experience with AWS, PostgreSQL, and containerization technologies like Docker and Kubernetes aligns well with your requirements. I would love the opportunity to discuss how my background could contribute to the exciting projects at Intelo.ai.\n\nThank you for considering my application. I look forward to the possibility of discussing this role further and hope to hear from you soon.",
+      "subject": "Application for Senior Software Engineer — Hritambh Hritvij",
+      "body": "",
+      "status": "sent",
+      "error": null,
+      "createdAt": "2026-05-20T23:48:04.561Z",
+      "updatedAt": "2026-05-20T23:49:58.162Z",
+      "recipients": [
+        {
+          "id": "4SQM77px",
+          "hrName": "Priyanka",
+          "emails": [
+            {
+              "id": "qgD_ByjF",
+              "address": "priyanka@intelo.ai",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:49:53.953Z"
+            },
+            {
+              "id": "wDBbrgyY",
+              "address": "sasunpooj@gmail.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:49:58.162Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Oo-dUESZ83",
+      "company": "ZoomInfo",
+      "role": "Senior Software Engineer",
+      "coverLetter": "I recently came across the opening for the Senior Software Engineer role at ZoomInfo and believe it aligns perfectly with my background and expertise. With 4.5 years of experience as a backend engineer, I have developed a strong proficiency in Node.js, Java, and various modern frameworks such as Nest.js and Spring Boot. \n\nIn my previous role at Neutrinos, I was the founding engineer and had the opportunity to build our product line from the ground up. This experience not only honed my technical skills but also taught me the importance of collaboration in driving projects to success. I have worked extensively with AWS, PostgreSQL, and microservices architecture, and I am well-versed in CI/CD practices.\n\nI am reaching out because I truly believe I would be a valuable asset to your team. I am enthusiastic about the possibility of contributing to ZoomInfo and would love the chance to discuss how my skills and experiences can benefit your organization. I look forward to hearing from you soon.",
+      "subject": "Application for Senior Software Engineer — Hritambh Hritvij",
+      "body": "",
+      "status": "sent",
+      "error": null,
+      "createdAt": "2026-05-20T23:48:04.560Z",
+      "updatedAt": "2026-05-20T23:50:26.328Z",
+      "recipients": [
+        {
+          "id": "pgGk_TRn",
+          "hrName": "Siddhanth",
+          "emails": [
+            {
+              "id": "hi-eFNHR",
+              "address": "siddhanth.gawali@zoominfo.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:02.003Z"
+            },
+            {
+              "id": "QEncF2fF",
+              "address": "gawalisiddhanth@gmail.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:05.987Z"
+            }
+          ]
+        },
+        {
+          "id": "5bqrttIJ",
+          "hrName": "Prathap",
+          "emails": [
+            {
+              "id": "Fyli96cx",
+              "address": "pmaruthi@zoominfo.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:09.778Z"
+            },
+            {
+              "id": "DLXJF1qh",
+              "address": "prathap.maruthi@gmail.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:14.056Z"
+            }
+          ]
+        },
+        {
+          "id": "hNnHI9tJ",
+          "hrName": "Vasumathi",
+          "emails": [
+            {
+              "id": "uzbd_Qub",
+              "address": "vasumathi.govindaraj@zoominfo.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:18.333Z"
+            },
+            {
+              "id": "5sZz0fUv",
+              "address": "vasumathigovindaraj@gmail.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:22.340Z"
+            },
+            {
+              "id": "cKuXTp9E",
+              "address": "vasumathi.govindaraj@gmail.com",
+              "emailValidation": "valid",
+              "emailValidationMessage": "Email appears reachable",
+              "status": "sent",
+              "error": null,
+              "sentAt": "2026-05-20T23:50:26.328Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

@@ -3,7 +3,8 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { readDB, updateDB } from '../store.js';
+import { prisma } from '../db.js';
+import { authenticate } from '../middleware/auth.js';
 import { log } from '../utils/logger.js';
 
 const CTX = 'resume';
@@ -37,67 +38,83 @@ const upload = multer({
 });
 
 const router = Router();
+router.use(authenticate);
 
-router.get('/', (_req, res) => {
-  const { resume } = readDB();
-  res.json({ resume });
+router.get('/', async (req, res) => {
+  try {
+    const resume = await prisma.resume.findUnique({ where: { userId: req.user.id } });
+    res.json({ resume });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/', upload.single('resume'), (req, res) => {
+router.post('/', upload.single('resume'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const meta = {
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    mimeType: req.file.mimetype,
-    size: req.file.size,
-    uploadedAt: new Date().toISOString(),
-  };
-
-  updateDB((state) => {
-    if (state.resume?.filename) {
-      const oldPath = path.join(UPLOADS_DIR, state.resume.filename);
+  try {
+    // Remove old file from disk if one exists
+    const existing = await prisma.resume.findUnique({ where: { userId: req.user.id } });
+    if (existing) {
+      const oldPath = path.join(UPLOADS_DIR, existing.filename);
       if (fs.existsSync(oldPath)) {
-        try {
-          fs.unlinkSync(oldPath);
-        } catch (e) {
+        try { fs.unlinkSync(oldPath); } catch (e) {
           log.warn(CTX, 'Could not remove old resume file', { error: e.message });
         }
       }
     }
-    state.resume = meta;
-    return state;
-  });
 
-  log.info(CTX, 'Resume uploaded', {
-    filename: meta.filename,
-    originalName: meta.originalName,
-    size: meta.size,
-  });
-  res.json({ resume: meta });
+    const resume = await prisma.resume.upsert({
+      where: { userId: req.user.id },
+      create: {
+        userId: req.user.id,
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+      },
+      update: {
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        uploadedAt: new Date(),
+      },
+    });
+
+    log.info(CTX, 'Resume uploaded', {
+      userId: req.user.id,
+      filename: resume.filename,
+      originalName: resume.originalName,
+      size: resume.size,
+    });
+    res.json({ resume });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.delete('/', (_req, res) => {
-  updateDB((state) => {
-    if (state.resume?.filename) {
-      const p = path.join(UPLOADS_DIR, state.resume.filename);
+router.delete('/', async (req, res) => {
+  try {
+    const existing = await prisma.resume.findUnique({ where: { userId: req.user.id } });
+    if (existing) {
+      const p = path.join(UPLOADS_DIR, existing.filename);
       if (fs.existsSync(p)) {
-        try {
-          fs.unlinkSync(p);
-        } catch (e) {
+        try { fs.unlinkSync(p); } catch (e) {
           log.warn(CTX, 'Could not remove resume file', { error: e.message });
         }
       }
+      await prisma.resume.delete({ where: { userId: req.user.id } });
     }
-    state.resume = null;
-    return state;
-  });
-  log.info(CTX, 'Resume removed');
-  res.json({ ok: true });
+    log.info(CTX, 'Resume removed', { userId: req.user.id });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-export function getResumeAttachment() {
-  const { resume } = readDB();
+export async function getResumeAttachment(userId) {
+  const resume = await prisma.resume.findUnique({ where: { userId } });
   if (!resume) return null;
   const fullPath = path.join(UPLOADS_DIR, resume.filename);
   if (!fs.existsSync(fullPath)) return null;

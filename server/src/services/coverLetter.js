@@ -47,10 +47,10 @@ function buildUserPrompt({ company, role, applicantName, applicantHeadline, appl
     .join('\n');
 }
 
-export async function generateCoverLetter({ company, role }) {
-  const applicantName = process.env.APPLICANT_NAME || '';
-  const applicantHeadline = process.env.APPLICANT_HEADLINE || '';
-  const applicantSkills = process.env.APPLICANT_SKILLS || '';
+export async function generateCoverLetter({ company, role, profile }) {
+  const applicantName = profile?.applicantName || '';
+  const applicantHeadline = profile?.applicantHeadline || '';
+  const applicantSkills = profile?.applicantSkills || '';
 
   const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const openai = getClient();
@@ -78,13 +78,16 @@ export async function generateCoverLetter({ company, role }) {
   return text;
 }
 
-export function buildEmailFromCoverLetter({ hrName, company, role, coverLetter }) {
-  const applicantName = (process.env.APPLICANT_NAME || '').trim() || 'Your Name';
-  const applicantPhone = (process.env.APPLICANT_PHONE || '').trim() || '8757518503';
+export function buildEmailFromCoverLetter({ hrName, company, role, coverLetter, profile }) {
+  const applicantName = (profile?.applicantName || '').trim() || 'Your Name';
+  const applicantPhone = (profile?.applicantPhone || '').trim() || '';
   const greetingName = hrName?.trim() ? hrName.trim() : 'Team';
   const letter = String(coverLetter || '').trim();
 
   const subject = `Application for ${role} — ${applicantName}`.trim();
+
+  const signatureLines = ['Best regards,', applicantName];
+  if (applicantPhone) signatureLines.push(`Phone: +91 ${applicantPhone}`);
 
   const body = normalizeEmailBody(
     [
@@ -94,9 +97,7 @@ export function buildEmailFromCoverLetter({ hrName, company, role, coverLetter }
       '',
       `I've attached my resume for your review and would welcome the chance to discuss how I can contribute to ${company}.`,
       '',
-      'Best regards,',
-      applicantName,
-      `Phone: +91 ${applicantPhone}`,
+      ...signatureLines,
     ].join('\n'),
   );
 

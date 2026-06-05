@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // The url line is removed!
+}
+
+model User {
+  id           String             @id @default(uuid())
+  email        String             @unique
+  passwordHash String?
+  googleId     String?            @unique
+  name         String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  profile      UserProfile?
+  resumes      Resume[]
+  applications ApplicationGroup[]
+  auditLogs    AuditLog[]
+}
+
+model UserProfile {
+  userId           String  @id
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicantName    String  @default("")
+  applicantHeadline String @default("")
+  applicantSkills  String  @default("") @db.Text
+  applicantPhone   String  @default("")
+  smtpHost         String  @default("")
+  smtpPort         Int     @default(587)
+  smtpSecure       Boolean @default(false)
+  smtpUser         String  @default("")
+  smtpPassEnc      String?
+  mailFromName     String  @default("")
+  mailFromAddress  String  @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Resume {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  uploadedAt   DateTime @default(now())
+}
+
+model ApplicationGroup {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company     String
+  role        String
+  coverLetter String      @db.Text
+  subject     String
+  body        String      @db.Text
+  status      String      @default("pending")
+  error       String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  recipients  Recipient[]
+
+  @@unique([userId, company, role])
+}
+
+model Recipient {
+  id        String           @id @default(uuid())
+  groupId   String
+  group     ApplicationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  hrName    String
+  emails    EmailEntry[]
+}
+
+model EmailEntry {
+  id                     String    @id @default(uuid())
+  recipientId            String
+  recipient              Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  address                String
+  emailValidation        String    @default("checking")
+  emailValidationMessage String?
+  status                 String    @default("pending")
+  error                  String?
+  sentAt                 DateTime?
+  messageId              String?   // SMTP Message-ID of the initial send (used for threading follow-ups)
+  followUpStatus         String?   // null | "sent" | "failed"
+  followUpSentAt         DateTime?
+  followUpMessageId      String?
+  followUpError          String?
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     String
+  entityType String
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+}

@@ -2,6 +2,7 @@ import {
   countGroupEmails,
   countGroupEmailsByStatus,
   getRecipientEmails,
+  isEmailFollowUpable,
   isEmailSendable,
   isGroupGenerating,
 } from '../api.js';
@@ -10,7 +11,9 @@ import EmailValidationBadge from './EmailValidationBadge.jsx';
 export default function ApplicationsTable({
   applications,
   selected,
+  selectedFollowUps,
   onToggleSelect,
+  onToggleFollowUp,
   onReview,
   onRegenerate,
   onDeleteGroup,
@@ -47,7 +50,9 @@ export default function ApplicationsTable({
               emailCount={countGroupEmails(group)}
               sentCount={countGroupEmailsByStatus(group, 'sent')}
               selected={selected}
+              selectedFollowUps={selectedFollowUps}
               onToggleSelect={onToggleSelect}
+              onToggleFollowUp={onToggleFollowUp}
               onReview={onReview}
               onRegenerate={onRegenerate}
               onDeleteGroup={onDeleteGroup}
@@ -67,7 +72,9 @@ function GroupRows({
   emailCount,
   sentCount,
   selected,
+  selectedFollowUps,
   onToggleSelect,
+  onToggleFollowUp,
   onReview,
   onRegenerate,
   onDeleteGroup,
@@ -106,26 +113,37 @@ function GroupRows({
   return rows.map(
     ({ recipient, email, isFirstGroupRow, isFirstHrRow, emailIdx, hrEmailCount }) => {
       const isReady = isEmailSendable(group, email);
+      const canFollowUp = isEmailFollowUpable(email);
 
       return (
         <tr
           key={email.id}
-          className={`${selected.has(email.id) ? 'selected' : ''} ${isFirstGroupRow ? 'group-first' : 'group-cont'}`}
+          className={`${selected.has(email.id) || selectedFollowUps?.has(email.id) ? 'selected' : ''} ${isFirstGroupRow ? 'group-first' : 'group-cont'}`}
         >
           <td className="col-check">
-            <input
-              type="checkbox"
-              checked={selected.has(email.id)}
-              onChange={() => onToggleSelect(email.id)}
-              disabled={!isReady}
-              title={
-                email.emailValidation === 'invalid'
-                  ? 'Fix or verify email before sending'
-                  : isReady
-                    ? ''
-                    : 'Not ready to send'
-              }
-            />
+            {canFollowUp ? (
+              <input
+                type="checkbox"
+                checked={selectedFollowUps?.has(email.id) || false}
+                onChange={() => onToggleFollowUp(email.id)}
+                title="Select for follow-up"
+                style={{ accentColor: '#7c3aed' }}
+              />
+            ) : (
+              <input
+                type="checkbox"
+                checked={selected.has(email.id)}
+                onChange={() => onToggleSelect(email.id)}
+                disabled={!isReady}
+                title={
+                  email.emailValidation === 'invalid'
+                    ? 'Fix or verify email before sending'
+                    : isReady
+                      ? ''
+                      : 'Not ready to send'
+                }
+              />
+            )}
           </td>
           <td>
             {isFirstGroupRow ? (
@@ -165,6 +183,9 @@ function GroupRows({
               <div className="error-msg small" title={email.error}>
                 {truncate(email.error, 60)}
               </div>
+            )}
+            {email.status === 'sent' && (
+              <FollowUpBadge email={email} />
             )}
           </td>
           <td className="col-actions">
@@ -261,6 +282,28 @@ function RowStatusBadge({
         </div>
       )}
     </>
+  );
+}
+
+function FollowUpBadge({ email }) {
+  if (email.followUpStatus === 'sent') {
+    return (
+      <div className="muted small" style={{ color: '#7c3aed' }}>
+        ↩ followed up {email.followUpSentAt ? new Date(email.followUpSentAt).toLocaleDateString() : ''}
+      </div>
+    );
+  }
+  if (email.followUpStatus === 'failed') {
+    return (
+      <div className="error-msg small" title={email.followUpError}>
+        follow-up failed
+      </div>
+    );
+  }
+  return (
+    <div className="muted small" style={{ color: '#7c3aed' }}>
+      ☑ select to follow up
+    </div>
   );
 }
 

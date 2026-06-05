@@ -4,50 +4,46 @@ import { log, timed } from '../utils/logger.js';
 
 const CTX = 'smtp';
 
-let transporter = null;
-
-export function getTransporter() {
-  if (transporter) return transporter;
-
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = String(process.env.SMTP_SECURE || 'false') === 'true';
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-
-  if (!host || !user || !pass) {
-    throw new Error('SMTP is not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS in .env');
+function assertSmtpProfile(profile) {
+  if (
+    !profile?.smtpHost ||
+    !profile?.smtpUser ||
+    !profile?.smtpPass ||
+    !profile?.mailFromAddress
+  ) {
+    throw new Error('Complete your profile SMTP settings before sending.');
   }
-
-  transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user, pass },
-  });
-
-  log.info(CTX, 'SMTP transporter created', { host, port, secure, user });
-  return transporter;
 }
 
-export function getFromHeader() {
-  const name = process.env.MAIL_FROM_NAME || process.env.APPLICANT_NAME || '';
-  const address = process.env.MAIL_FROM_ADDRESS || process.env.SMTP_USER;
-  if (!address) throw new Error('MAIL_FROM_ADDRESS or SMTP_USER must be set');
+function createTransporter(profile) {
+  assertSmtpProfile(profile);
+  return nodemailer.createTransport({
+    host: profile.smtpHost,
+    port: Number(profile.smtpPort || 587),
+    secure: Boolean(profile.smtpSecure),
+    auth: { user: profile.smtpUser, pass: profile.smtpPass },
+  });
+}
+
+function getFromHeader(profile) {
+  assertSmtpProfile(profile);
+  const name = profile.mailFromName || profile.applicantName || '';
+  const address = profile.mailFromAddress || profile.smtpUser;
   return name ? `"${name}" <${address}>` : address;
 }
 
-export async function sendApplicationEmail({ to, subject, body, attachment }) {
-  const tx = getTransporter();
+export async function sendApplicationEmail({ to, subject, body, attachment, profile, inReplyTo }) {
+  const tx = createTransporter(profile);
   const text = normalizeEmailBody(body);
   const html = bodyToHtml(text);
+  const from = getFromHeader(profile);
 
   return timed(
     CTX,
     'sendMail',
     async () => {
-      const info = await tx.sendMail({
-        from: getFromHeader(),
+      const mailOptions = {
+        from,
         to,
         subject,
         text,
@@ -61,11 +57,19 @@ export async function sendApplicationEmail({ to, subject, body, attachment }) {
               },
             ]
           : [],
-      });
+      };
+
+      if (inReplyTo) {
+        mailOptions.inReplyTo = inReplyTo;
+        mailOptions.references = inReplyTo;
+      }
+
+      const info = await tx.sendMail(mailOptions);
 
       log.info(CTX, 'Email sent', {
         to,
         subject,
+        from,
         messageId: info.messageId,
         attachment: attachment?.originalName || null,
       });
@@ -75,4 +79,3 @@ export async function sendApplicationEmail({ to, subject, body, attachment }) {
     { to, subject, hasAttachment: Boolean(attachment) },
   );
 }
-
