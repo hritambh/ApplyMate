@@ -36,6 +36,9 @@ export function appendSendHistory(entry) {
       messageId: entry.messageId || null,
       groupId: entry.groupId || null,
       recipientId: entry.recipientId || null,
+      emailId: entry.emailId || null,
+      isFollowUp: Boolean(entry.isFollowUp),
+      sequence: entry.sequence || null,
     });
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
     log.info(CTX, 'Send recorded in history.json', {

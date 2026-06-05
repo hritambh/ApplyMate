@@ -15,6 +15,8 @@ import ApplicationsTable from './components/ApplicationsTable.jsx';
 import ReviewModal from './components/ReviewModal.jsx';
 import AuthScreen from './components/AuthScreen.jsx';
 import ProfileSetup from './components/ProfileSetup.jsx';
+import AdminPanel from './components/AdminPanel.jsx';
+import HistoryModal from './components/HistoryModal.jsx';
 
 export default function App() {
   // --- Auth State ---
@@ -23,6 +25,7 @@ export default function App() {
   // --- Profile State ---
   const [profile, setProfile] = useState(null);
   const [profileComplete, setProfileComplete] = useState(false);
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('applymate_role') || 'user');
   const [profileLoading, setProfileLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -34,17 +37,20 @@ export default function App() {
   const [selectedFollowUps, setSelectedFollowUps] = useState(() => new Set());
   const [showBulk, setShowBulk] = useState(false);
   const [reviewId, setReviewId] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState(null);
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('applymate_token');
+    localStorage.removeItem('applymate_role');
     setIsAuthenticated(false);
     setProfile(null);
     setProfileComplete(false);
     setShowSettings(false);
     setApplications([]);
     setResume(null);
+    setUserRole('user');
   }, []);
 
   const handleSessionExpired = useCallback(
@@ -86,8 +92,10 @@ export default function App() {
     }
   }, []);
 
-  const handleAuthSuccess = (token) => {
+  const handleAuthSuccess = (token, role = 'user') => {
     localStorage.setItem('applymate_token', token);
+    localStorage.setItem('applymate_role', role);
+    setUserRole(role);
     setIsAuthenticated(true);
     setBanner(null);
   };
@@ -98,6 +106,10 @@ export default function App() {
       const res = await api.getProfile();
       setProfile(res.profile);
       setProfileComplete(Boolean(res.complete));
+      if (res.profile?.role) {
+        setUserRole(res.profile.role);
+        localStorage.setItem('applymate_role', res.profile.role);
+      }
       return res;
     } catch (err) {
       if (isUnauthorized(err)) {
@@ -453,9 +465,24 @@ export default function App() {
           </div>
         </div>
         <div className="health">
-          <HealthDot ok={health?.openaiConfigured} label="OpenAI" />
+          <HealthDot
+            ok={profile?.openaiKeyConfigured || profile?.openaiSource === 'shared'}
+            label={userRole === 'su' ? 'OpenAI (SU)' : 'OpenAI'}
+            title={
+              profile?.openaiKeyConfigured
+                ? 'Using your own OpenAI key'
+                : profile?.openaiSource === 'shared'
+                  ? 'Using shared server key (approved)'
+                  : 'No OpenAI key — add one in Settings'
+            }
+          />
           <HealthDot ok={profile?.smtpPassConfigured && profile?.smtpHost} label="SMTP" />
           <HealthDot ok={profileComplete} label="Profile" />
+          {userRole === 'su' && (
+            <span className="pill pill-ok" title="Superuser">
+              <span className="dot" /> SU
+            </span>
+          )}
           <button
             type="button"
             className="btn ghost small"
@@ -464,6 +491,29 @@ export default function App() {
           >
             Settings
           </button>
+          {true && (
+            <a
+              href={profile?.linkedinUrl || 'https://www.linkedin.com/feed/'}
+              target="_blank"
+              rel="noreferrer"
+              title="Open LinkedIn profile"
+              style={{
+                marginLeft: '8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                background: '#0a66c2',
+                borderRadius: '6px',
+                color: 'white',
+                textDecoration: 'none',
+                flexShrink: 0,
+              }}
+            >
+              <LinkedInIcon />
+            </a>
+          )}
           <button
             onClick={handleLogout}
             style={{
@@ -492,6 +542,10 @@ export default function App() {
       )}
 
       <main className="content">
+        {userRole === 'su' && (
+          <AdminPanel onError={(msg) => setBanner({ kind: 'error', text: msg })} />
+        )}
+
         <section className="grid">
           <ResumeCard
             resume={resume}
@@ -539,6 +593,9 @@ export default function App() {
           <button className="btn" onClick={clearSelection} disabled={!selected.size && !selectedFollowUps.size}>
             Clear selection
           </button>
+          <button className="btn" onClick={() => setShowHistory(true)}>
+            History
+          </button>
           <div className="spacer" />
           {selectedFollowUps.size > 0 && (
             <button
@@ -577,6 +634,8 @@ export default function App() {
         <BulkAddForm busy={busy} onClose={() => setShowBulk(false)} onSubmit={handleBulkAdd} />
       )}
 
+      {showHistory && <HistoryModal onClose={() => setShowHistory(false)} />}
+
       {reviewTarget && (
         <ReviewModal
           application={reviewTarget}
@@ -594,11 +653,19 @@ export default function App() {
   );
 }
 
-function HealthDot({ ok, label }) {
+function LinkedInIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+    </svg>
+  );
+}
+
+function HealthDot({ ok, label, title }) {
   return (
     <span
       className={`pill ${ok ? 'pill-ok' : 'pill-warn'}`}
-      title={ok ? 'Configured' : 'Not configured'}
+      title={title ?? (ok ? 'Configured' : 'Not configured')}
     >
       <span className="dot" />
       {label}

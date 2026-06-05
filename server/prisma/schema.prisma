@@ -8,35 +8,52 @@ datasource db {
 }
 
 model User {
-  id           String             @id @default(uuid())
-  email        String             @unique
-  passwordHash String?
-  googleId     String?            @unique
-  name         String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  profile      UserProfile?
-  resumes      Resume[]
-  applications ApplicationGroup[]
-  auditLogs    AuditLog[]
+  id                  String               @id @default(uuid())
+  email               String               @unique
+  passwordHash        String?
+  googleId            String?              @unique
+  name                String?
+  role                String               @default("user") // "user" | "su"
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  profile             UserProfile?
+  resumes             Resume[]
+  applications        ApplicationGroup[]
+  auditLogs           AuditLog[]
+  subscriptionRequest SubscriptionRequest?
 }
 
 model UserProfile {
-  userId           String  @id
-  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicantName    String  @default("")
-  applicantHeadline String @default("")
-  applicantSkills  String  @default("") @db.Text
-  applicantPhone   String  @default("")
-  smtpHost         String  @default("")
-  smtpPort         Int     @default(587)
-  smtpSecure       Boolean @default(false)
-  smtpUser         String  @default("")
-  smtpPassEnc      String?
-  mailFromName     String  @default("")
-  mailFromAddress  String  @default("")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  userId            String  @id
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicantName     String  @default("")
+  applicantHeadline String  @default("")
+  applicantSkills   String  @default("") @db.Text
+  applicantPhone    String  @default("")
+  smtpHost          String  @default("")
+  smtpPort          Int     @default(587)
+  smtpSecure        Boolean @default(false)
+  smtpUser          String  @default("")
+  smtpPassEnc       String?
+  mailFromName      String  @default("")
+  mailFromAddress   String  @default("")
+  openaiKeyEnc      String? // encrypted per-user OpenAI key (optional)
+  linkedinUrl       String  @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model SubscriptionRequest {
+  id           String    @id @default(uuid())
+  userId       String    @unique
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       String    @default("pending") // pending | approved | denied
+  message      String?   // optional note from user
+  reviewNote   String?   // optional note from SU
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model Resume {
@@ -77,20 +94,39 @@ model Recipient {
 }
 
 model EmailEntry {
-  id                     String    @id @default(uuid())
+  id                     String     @id @default(uuid())
   recipientId            String
-  recipient              Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  recipient              Recipient  @relation(fields: [recipientId], references: [id], onDelete: Cascade)
   address                String
-  emailValidation        String    @default("checking")
+  emailValidation        String     @default("checking")
   emailValidationMessage String?
-  status                 String    @default("pending")
+  status                 String     @default("pending")
   error                  String?
   sentAt                 DateTime?
-  messageId              String?   // SMTP Message-ID of the initial send (used for threading follow-ups)
-  followUpStatus         String?   // null | "sent" | "failed"
+  messageId              String?    // SMTP Message-ID of the initial send (used for threading follow-ups)
+  // Summary of the most recent follow-up (kept in sync for backward-compatible display).
+  // The full, per-send history lives in the FollowUp relation below.
+  followUpStatus         String?    // null | "sent" | "failed"
   followUpSentAt         DateTime?
   followUpMessageId      String?
   followUpError          String?
+  followUps              FollowUp[]
+}
+
+model FollowUp {
+  id           String     @id @default(uuid())
+  emailEntryId String
+  emailEntry   EmailEntry @relation(fields: [emailEntryId], references: [id], onDelete: Cascade)
+  sequence     Int        // 1-based follow-up number for this email
+  status       String     // "sent" | "failed"
+  subject      String     @default("")
+  sentAt       DateTime?
+  messageId    String?    // SMTP Message-ID of this follow-up (next reply threads onto it)
+  inReplyTo    String?    // the message this follow-up replied to
+  error        String?
+  createdAt    DateTime   @default(now())
+
+  @@index([emailEntryId])
 }
 
 model AuditLog {

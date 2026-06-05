@@ -1,14 +1,9 @@
 import OpenAI from 'openai';
 import { normalizeEmailBody } from '../utils/emailBody.js';
 
-let client = null;
-function getClient() {
-  if (client) return client;
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set');
-  }
-  client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return client;
+function getClient(apiKey) {
+  if (!apiKey) throw new Error('OpenAI API key is required');
+  return new OpenAI({ apiKey });
 }
 
 const SYSTEM_PROMPT =
@@ -47,13 +42,13 @@ function buildUserPrompt({ company, role, applicantName, applicantHeadline, appl
     .join('\n');
 }
 
-export async function generateCoverLetter({ company, role, profile }) {
+export async function generateCoverLetter({ company, role, profile, openaiKey }) {
   const applicantName = profile?.applicantName || '';
   const applicantHeadline = profile?.applicantHeadline || '';
   const applicantSkills = profile?.applicantSkills || '';
 
   const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-  const openai = getClient();
+  const openai = getClient(openaiKey);
 
   const completion = await openai.chat.completions.create({
     model,

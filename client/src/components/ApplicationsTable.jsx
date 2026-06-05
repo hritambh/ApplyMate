@@ -1,6 +1,7 @@
 import {
   countGroupEmails,
   countGroupEmailsByStatus,
+  followUpCount,
   getRecipientEmails,
   isEmailFollowUpable,
   isEmailSendable,
@@ -286,24 +287,28 @@ function RowStatusBadge({
 }
 
 function FollowUpBadge({ email }) {
-  if (email.followUpStatus === 'sent') {
-    return (
-      <div className="muted small" style={{ color: '#7c3aed' }}>
-        ↩ followed up {email.followUpSentAt ? new Date(email.followUpSentAt).toLocaleDateString() : ''}
-      </div>
-    );
-  }
-  if (email.followUpStatus === 'failed') {
-    return (
-      <div className="error-msg small" title={email.followUpError}>
-        follow-up failed
-      </div>
-    );
-  }
+  const count = followUpCount(email);
+  const lastFailed = email.followUpStatus === 'failed';
+  const lastDate = email.followUpSentAt
+    ? new Date(email.followUpSentAt).toLocaleDateString()
+    : '';
+
   return (
-    <div className="muted small" style={{ color: '#7c3aed' }}>
-      ☑ select to follow up
-    </div>
+    <>
+      {count > 0 && (
+        <div className="muted small" style={{ color: '#7c3aed' }}>
+          ↩ {count} follow-up{count > 1 ? 's' : ''} sent{lastDate ? ` · last ${lastDate}` : ''}
+        </div>
+      )}
+      {lastFailed && (
+        <div className="error-msg small" title={email.followUpError}>
+          last follow-up failed
+        </div>
+      )}
+      <div className="muted small" style={{ color: '#7c3aed' }}>
+        ☑ select to follow up{count > 0 ? ' again' : ''}
+      </div>
+    </>
   );
 }
 

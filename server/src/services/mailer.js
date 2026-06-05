@@ -17,10 +17,13 @@ function assertSmtpProfile(profile) {
 
 function createTransporter(profile) {
   assertSmtpProfile(profile);
+  const port = Number(profile.smtpPort || 587);
+  // Port 465 uses implicit SSL/TLS; all other ports (587, 25) use STARTTLS
+  const secure = port === 465;
   return nodemailer.createTransport({
     host: profile.smtpHost,
-    port: Number(profile.smtpPort || 587),
-    secure: Boolean(profile.smtpSecure),
+    port,
+    secure,
     auth: { user: profile.smtpUser, pass: profile.smtpPass },
   });
 }

@@ -7,6 +7,7 @@ import authRouter from './routes/auth.js';
 import resumeRouter from './routes/resume.js';
 import applicationsRouter from './routes/applications.js';
 import profileRouter from './routes/profile.js';
+import subscriptionsRouter from './routes/subscriptions.js';
 import { requestLogger, errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 // 1. Initialize Express
@@ -25,6 +26,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/resume', resumeRouter);
 app.use('/api/applications', applicationsRouter);
+app.use('/api/subscriptions', subscriptionsRouter);
 
 // 5. Start the server
 app.get('/api/health', (_req, res) => {

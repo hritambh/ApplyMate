@@ -43,7 +43,7 @@ export default function AuthScreen({ onAuthSuccess, banner, setBanner }) {
           ? await api.login(email, password)
           : await api.register({ name: form.name.trim(), email, password });
 
-      onAuthSuccess(result.token);
+      onAuthSuccess(result.token, result.user?.role || 'user');
     } catch (err) {
       setBanner?.({ kind: 'error', text: err.message });
     } finally {

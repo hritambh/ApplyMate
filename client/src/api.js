@@ -219,6 +219,43 @@ export const api = {
       headers: authJsonHeaders(),
       body: JSON.stringify({ ids }),
     }),
+
+  getHistory: () =>
+    request('/applications/history', { headers: { ...getAuthHeaders() } }),
+
+  // --- Subscriptions ---
+  getMySubscription: () =>
+    request('/subscriptions/my', { headers: { ...getAuthHeaders() } }),
+
+  requestSubscription: (message = '') =>
+    request('/subscriptions/request', {
+      method: 'POST',
+      headers: authJsonHeaders(),
+      body: JSON.stringify({ message }),
+    }),
+
+  listSubscriptions: () =>
+    request('/subscriptions', { headers: { ...getAuthHeaders() } }),
+
+  approveSubscription: (id, reviewNote = '') =>
+    request(`/subscriptions/${id}/approve`, {
+      method: 'POST',
+      headers: authJsonHeaders(),
+      body: JSON.stringify({ reviewNote }),
+    }),
+
+  denySubscription: (id, reviewNote = '') =>
+    request(`/subscriptions/${id}/deny`, {
+      method: 'POST',
+      headers: authJsonHeaders(),
+      body: JSON.stringify({ reviewNote }),
+    }),
+
+  revokeSubscription: (id) =>
+    request(`/subscriptions/${id}/revoke`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+    }),
 };
 
 /** Ensure legacy recipient.email is available as emails[]. */
@@ -256,9 +293,20 @@ export function countGroupEmailsByStatus(group, status) {
   return n;
 }
 
-/** An email is eligible for a follow-up when it was sent and no follow-up has been sent yet. */
+/**
+ * An email is eligible for a follow-up once its initial send succeeded. Follow-ups
+ * can be sent any number of times, so a prior follow-up no longer locks it out.
+ */
 export function isEmailFollowUpable(emailEntry) {
-  return emailEntry.status === 'sent' && emailEntry.followUpStatus !== 'sent';
+  return emailEntry.status === 'sent';
+}
+
+/** Number of follow-ups successfully sent for an email entry. */
+export function followUpCount(emailEntry) {
+  const list = emailEntry?.followUps;
+  if (Array.isArray(list)) return list.filter((f) => f.status === 'sent').length;
+  // Fallback for records without the followUps relation loaded.
+  return emailEntry?.followUpStatus === 'sent' ? 1 : 0;
 }
 
 /** One email entry is sendable when its group has content and it hasn't been sent yet. */

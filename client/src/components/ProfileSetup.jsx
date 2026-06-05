@@ -13,6 +13,8 @@ const EMPTY = {
   smtpPass: '',
   mailFromName: '',
   mailFromAddress: '',
+  openaiKey: '',
+  linkedinUrl: '',
 };
 
 export default function ProfileSetup({
@@ -26,6 +28,9 @@ export default function ProfileSetup({
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [subBusy, setSubBusy] = useState(false);
+  const [subscription, setSubscription] = useState(null);
+  const [subMessage, setSubMessage] = useState('');
 
   useEffect(() => {
     if (initialProfile) {
@@ -41,13 +46,17 @@ export default function ProfileSetup({
         smtpPass: '',
         mailFromName: initialProfile.mailFromName || '',
         mailFromAddress: initialProfile.mailFromAddress || '',
+        openaiKey: '',
+        linkedinUrl: initialProfile.linkedinUrl || '',
       });
     }
+
+    // Load subscription status
+    api.getMySubscription().then((res) => setSubscription(res.subscription)).catch(() => {});
   }, [initialProfile]);
 
   const setField = (key) => (e) => {
-    const value =
-      e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setForm((f) => ({ ...f, [key]: value }));
   };
 
@@ -63,9 +72,7 @@ export default function ProfileSetup({
         setBanner?.({ kind: 'error', text: 'Please fill in all required fields.' });
       }
     } catch (err) {
-      if (!isUnauthorized(err)) {
-        setBanner?.({ kind: 'error', text: err.message });
-      }
+      if (!isUnauthorized(err)) setBanner?.({ kind: 'error', text: err.message });
     } finally {
       setBusy(false);
     }
@@ -79,13 +86,29 @@ export default function ProfileSetup({
       const res = await api.testSmtp();
       setBanner?.({ kind: 'success', text: res.message || 'Test email sent.' });
     } catch (err) {
-      if (!isUnauthorized(err)) {
-        setBanner?.({ kind: 'error', text: err.message });
-      }
+      if (!isUnauthorized(err)) setBanner?.({ kind: 'error', text: err.message });
     } finally {
       setTesting(false);
     }
   };
+
+  const handleRequestAccess = async () => {
+    setSubBusy(true);
+    try {
+      const res = await api.requestSubscription(subMessage);
+      setSubscription(res.subscription);
+      setSubMessage('');
+      setBanner?.({ kind: 'success', text: 'Access request submitted. The admin will review it.' });
+    } catch (err) {
+      setBanner?.({ kind: 'error', text: err.message });
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const openaiConfigured = initialProfile?.openaiKeyConfigured;
+  const openaiSource = initialProfile?.openaiSource;
+  const subStatus = subscription?.status ?? initialProfile?.subscriptionStatus;
 
   return (
     <div className="auth-page">
@@ -138,6 +161,103 @@ export default function ProfileSetup({
                 disabled={busy}
               />
             </label>
+            <label className="auth-field">
+              <span>LinkedIn URL</span>
+              <input
+                type="url"
+                value={form.linkedinUrl}
+                onChange={setField('linkedinUrl')}
+                placeholder="https://linkedin.com/in/your-profile"
+                disabled={busy}
+              />
+            </label>
+          </fieldset>
+
+          <fieldset className="profile-section">
+            <legend>OpenAI API key</legend>
+            <p className="profile-hint">
+              Provide your own{' '}
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">
+                OpenAI API key
+              </a>{' '}
+              to generate cover letters, or request shared access below.
+            </p>
+
+            {/* Current status pill */}
+            {openaiConfigured && (
+              <div className="profile-hint" style={{ color: '#16a34a', marginBottom: 8 }}>
+                Your own key is configured.{' '}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => {
+                    if (confirm('Remove your stored OpenAI key?')) {
+                      api.updateProfile({ ...form, clearOpenaiKey: true })
+                        .then((r) => onComplete?.(r.profile))
+                        .catch((err) => setBanner?.({ kind: 'error', text: err.message }));
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+            {!openaiConfigured && openaiSource === 'shared' && (
+              <div className="profile-hint" style={{ color: '#16a34a', marginBottom: 8 }}>
+                Shared access approved — you are using the server key.
+              </div>
+            )}
+
+            <label className="auth-field">
+              <span>{openaiConfigured ? 'Replace key (leave blank to keep current)' : 'API key'}</span>
+              <input
+                type="password"
+                value={form.openaiKey}
+                onChange={setField('openaiKey')}
+                placeholder="sk-…"
+                autoComplete="off"
+                disabled={busy}
+              />
+            </label>
+
+            {/* Shared access request section */}
+            {!openaiConfigured && openaiSource !== 'shared' && (
+              <div className="profile-hint" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                <strong>Or request shared access from the admin</strong>
+                {subStatus === 'pending' && (
+                  <p style={{ color: '#d97706', margin: '6px 0 0' }}>
+                    Request pending — the admin will review soon.
+                  </p>
+                )}
+                {subStatus === 'denied' && (
+                  <p style={{ color: '#ef4444', margin: '6px 0 0' }}>
+                    Request denied{subscription?.reviewNote ? `: ${subscription.reviewNote}` : '.'} You can re-submit below.
+                  </p>
+                )}
+                {subStatus !== 'pending' && (
+                  <>
+                    <textarea
+                      rows={2}
+                      className="auth-field"
+                      style={{ display: 'block', width: '100%', marginTop: 8 }}
+                      placeholder="Optional: explain your use case…"
+                      value={subMessage}
+                      onChange={(e) => setSubMessage(e.target.value)}
+                      disabled={subBusy}
+                    />
+                    <button
+                      type="button"
+                      className="btn small"
+                      style={{ marginTop: 6 }}
+                      onClick={handleRequestAccess}
+                      disabled={subBusy}
+                    >
+                      {subBusy ? 'Submitting…' : subStatus === 'denied' ? 'Re-submit request' : 'Request shared access'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </fieldset>
 
           <fieldset className="profile-section">
@@ -156,31 +276,16 @@ export default function ProfileSetup({
               </label>
               <label className="auth-field flex-1">
                 <span>Port</span>
-                <input
-                  type="number"
-                  value={form.smtpPort}
-                  onChange={setField('smtpPort')}
-                  disabled={busy}
-                />
+                <input type="number" value={form.smtpPort} onChange={setField('smtpPort')} disabled={busy} />
               </label>
             </div>
             <label className="auth-field checkbox-inline">
-              <input
-                type="checkbox"
-                checked={form.smtpSecure}
-                onChange={setField('smtpSecure')}
-                disabled={busy}
-              />
+              <input type="checkbox" checked={form.smtpSecure} onChange={setField('smtpSecure')} disabled={busy} />
               <span>Use SSL/TLS (secure)</span>
             </label>
             <label className="auth-field">
               <span>SMTP user (email)</span>
-              <input
-                type="email"
-                value={form.smtpUser}
-                onChange={setField('smtpUser')}
-                disabled={busy}
-              />
+              <input type="email" value={form.smtpUser} onChange={setField('smtpUser')} disabled={busy} />
             </label>
             <label className="auth-field">
               <span>
@@ -201,12 +306,7 @@ export default function ProfileSetup({
             </label>
             <label className="auth-field">
               <span>From address</span>
-              <input
-                type="email"
-                value={form.mailFromAddress}
-                onChange={setField('mailFromAddress')}
-                disabled={busy}
-              />
+              <input type="email" value={form.mailFromAddress} onChange={setField('mailFromAddress')} disabled={busy} />
             </label>
           </fieldset>
 
@@ -216,12 +316,7 @@ export default function ProfileSetup({
                 Cancel
               </button>
             )}
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={handleTestSmtp}
-              disabled={busy || testing}
-            >
+            <button type="button" className="btn ghost" onClick={handleTestSmtp} disabled={busy || testing}>
               {testing ? 'Sending test…' : 'Send test email'}
             </button>
             <button type="submit" className="btn primary auth-submit" disabled={busy}>

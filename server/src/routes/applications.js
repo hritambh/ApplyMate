@@ -4,7 +4,7 @@ import { readDB, updateDB } from '../store.js';
 import { generateCoverLetter, buildEmailFromCoverLetter } from '../services/coverLetter.js';
 import { checkEmailExists } from '../services/emailValidate.js';
 import { sendApplicationEmail } from '../services/mailer.js';
-import { getProfileForUser, isProfileComplete } from '../services/userProfile.js';
+import { getProfileForUser, isProfileComplete, resolveOpenAIKey } from '../services/userProfile.js';
 import { getResumeAttachment } from './resume.js';
 import { groupKey } from '../utils/groupKey.js';
 import { migrateApplications } from '../utils/migrateApplications.js';
@@ -221,13 +221,81 @@ router.get('/', async (req, res) => {
       where: { userId: req.user.id },
       include: {
         recipients: {
-          include: { emails: true },
+          include: {
+            emails: {
+              include: { followUps: { orderBy: { sequence: 'asc' } } },
+            },
+          },
         },
       },
       orderBy: { updatedAt: 'desc' },
     });
     ensureBackgroundWork(req.user.id, applications);
     res.json({ applications });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Chronological timeline of every initial send and follow-up for the current user.
+router.get('/history', async (req, res) => {
+  try {
+    const groups = await prisma.applicationGroup.findMany({
+      where: { userId: req.user.id },
+      include: {
+        recipients: {
+          include: {
+            emails: {
+              include: { followUps: { orderBy: { sequence: 'asc' } } },
+            },
+          },
+        },
+      },
+    });
+
+    const events = [];
+    for (const group of groups) {
+      for (const recipient of group.recipients) {
+        for (const email of recipient.emails) {
+          const base = {
+            groupId: group.id,
+            emailId: email.id,
+            company: group.company,
+            role: group.role,
+            hrName: recipient.hrName,
+            address: email.address,
+          };
+
+          if (email.status === STATUS.SENT && email.sentAt) {
+            events.push({
+              ...base,
+              id: `init-${email.id}`,
+              type: 'initial',
+              status: STATUS.SENT,
+              subject: group.subject,
+              sentAt: email.sentAt,
+              sequence: 0,
+            });
+          }
+
+          for (const fu of email.followUps) {
+            events.push({
+              ...base,
+              id: `fu-${fu.id}`,
+              type: 'followup',
+              status: fu.status,
+              subject: fu.subject,
+              sentAt: fu.sentAt || fu.createdAt,
+              sequence: fu.sequence,
+              error: fu.error,
+            });
+          }
+        }
+      }
+    }
+
+    events.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
+    res.json({ history: events });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -709,13 +777,17 @@ router.delete('/:groupId/recipients/:recipientId', async (req, res) => {
   }
 });
 
-function buildFollowUpBody({ hrName, company, role, applicantName, daysSinceSent }) {
+function buildFollowUpBody({ hrName, company, role, applicantName, daysSinceSent, sequence = 1 }) {
   const greeting = hrName ? `Hi ${hrName},` : 'Hi,';
   const when = daysSinceSent <= 1 ? 'recently' : `${daysSinceSent} days ago`;
+  const opener =
+    sequence > 1
+      ? `I wanted to gently follow up once more on my application for the ${role} position at ${company}, which I originally sent ${when}.`
+      : `I wanted to follow up on my application for the ${role} position at ${company} that I sent ${when}.`;
   return [
     greeting,
     '',
-    `I wanted to follow up on my application for the ${role} position at ${company} that I sent ${when}.`,
+    opener,
     '',
     `I remain genuinely excited about this opportunity and would love to learn more. Please let me know if you need any additional information from my end.`,
     '',
@@ -755,14 +827,16 @@ router.post('/send-followups', async (req, res) => {
       continue;
     }
 
-    if (emailEntry.followUpStatus === STATUS.SENT) {
-      results.push({ id: emailId, ok: true, skipped: true });
-      continue;
-    }
-
     const daysSinceSent = emailEntry.sentAt
       ? Math.floor((Date.now() - new Date(emailEntry.sentAt).getTime()) / 86_400_000)
       : 0;
+
+    // Each email can be followed up an unlimited number of times. Determine which
+    // number this follow-up is, and thread the reply onto the most recent message
+    // in the chain (last successful follow-up, falling back to the initial send).
+    const priorFollowUps = await prisma.followUp.count({ where: { emailEntryId: emailId } });
+    const sequence = priorFollowUps + 1;
+    const inReplyTo = emailEntry.followUpMessageId || emailEntry.messageId || undefined;
 
     const body = buildFollowUpBody({
       hrName: recipient.hrName,
@@ -770,16 +844,18 @@ router.post('/send-followups', async (req, res) => {
       role: group.role,
       applicantName: profile.applicantName || profile.mailFromName,
       daysSinceSent,
+      sequence,
     });
 
     const subject = `Re: ${group.subject || `Application for ${group.role} — ${profile.applicantName || profile.mailFromName}`}`;
 
     log.info(CTX, 'Sending follow-up email', {
       emailId,
+      sequence,
       to: emailEntry.address,
       company: group.company,
       role: group.role,
-      inReplyTo: emailEntry.messageId,
+      inReplyTo,
     });
 
     const result = await sendWithRetry({
@@ -788,21 +864,38 @@ router.post('/send-followups', async (req, res) => {
       body,
       attachment: null,
       profile,
-      inReplyTo: emailEntry.messageId || undefined,
+      inReplyTo,
     });
 
     const followUpSentAt = result.ok ? new Date() : null;
+
+    // Record this individual follow-up attempt in its own history row.
+    await prisma.followUp.create({
+      data: {
+        emailEntryId: emailId,
+        sequence,
+        status: result.ok ? STATUS.SENT : STATUS.FAILED,
+        subject,
+        sentAt: followUpSentAt,
+        messageId: result.ok ? (result.messageId || null) : null,
+        inReplyTo: inReplyTo || null,
+        error: result.ok ? null : result.error,
+      },
+    });
+
+    // Keep the summary fields on the email pointed at the latest follow-up. On a
+    // successful send we advance followUpMessageId so the next reply threads onto it.
     await prisma.emailEntry.update({
       where: { id: emailId },
       data: {
         followUpStatus: result.ok ? STATUS.SENT : STATUS.FAILED,
-        followUpSentAt,
-        followUpMessageId: result.ok ? (result.messageId || null) : null,
+        followUpSentAt: result.ok ? followUpSentAt : emailEntry.followUpSentAt,
+        followUpMessageId: result.ok ? (result.messageId || emailEntry.followUpMessageId) : emailEntry.followUpMessageId,
         followUpError: result.ok ? null : result.error,
       },
     });
 
-    results.push({ id: emailId, groupId: group.id, recipientId: recipient.id, ...result });
+    results.push({ id: emailId, groupId: group.id, recipientId: recipient.id, sequence, ...result });
 
     if (result.ok) {
       log.info(CTX, 'Follow-up email sent', { emailId, messageId: result.messageId });
@@ -818,6 +911,7 @@ router.post('/send-followups', async (req, res) => {
         recipientId: recipient.id,
         emailId,
         isFollowUp: true,
+        sequence,
       });
     } else {
       log.error(CTX, 'Follow-up send failed', { emailId, error: result.error });
@@ -973,8 +1067,10 @@ async function generateForGroup(groupId, userId) {
     recipients: group.recipients.length,
   });
 
+  const { key: openaiKey } = await resolveOpenAIKey(userId);
+
   const coverLetter = await withTimeout(
-    generateCoverLetter({ company, role, profile }),
+    generateCoverLetter({ company, role, profile, openaiKey }),
     COVER_LETTER_TIMEOUT_MS,
     'Cover letter generation',
   );

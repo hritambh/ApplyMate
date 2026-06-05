@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { prisma } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import {
   getOrCreateProfile,
@@ -14,6 +15,24 @@ const router = Router();
 router.use(authenticate);
 const CTX = 'profile';
 
+async function buildProfileResponse(userId, record) {
+  const sub = await prisma.subscriptionRequest.findUnique({ where: { userId } });
+  const openaiSource = record.openaiKeyEnc
+    ? 'own'
+    : sub?.status === 'approved'
+      ? 'shared'
+      : null;
+
+  return {
+    profile: toPublicProfile(record, {
+      role: record._role,
+      openaiSource,
+      subscriptionStatus: sub?.status ?? null,
+    }),
+    complete: isProfileComplete(record),
+  };
+}
+
 router.get('/', async (req, res) => {
   try {
     const record = await getOrCreateProfile(req.user.id, {
@@ -21,10 +40,9 @@ router.get('/', async (req, res) => {
       mailFromAddress: req.user.email || '',
       mailFromName: req.user.name || '',
     });
-    res.json({
-      profile: toPublicProfile(record),
-      complete: isProfileComplete(record),
-    });
+    // attach role from user for toPublicProfile extras
+    record._role = req.user.role;
+    res.json(await buildProfileResponse(req.user.id, record));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -34,10 +52,8 @@ router.put('/', async (req, res) => {
   try {
     const record = await upsertProfile(req.user.id, req.body);
     log.info(CTX, 'Profile updated', { userId: req.user.id });
-    res.json({
-      profile: toPublicProfile(record),
-      complete: isProfileComplete(record),
-    });
+    record._role = req.user.role;
+    res.json(await buildProfileResponse(req.user.id, record));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

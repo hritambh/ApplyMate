@@ -4,16 +4,51 @@ A full-stack job application email automation app with AI-generated cover letter
 
 ## Workflow
 
-1. **Sign up / Sign in** — each user has their own isolated data and SMTP credentials.
-2. **Complete your profile** — set your name, headline, skills, phone, and SMTP settings once. All emails are sent from your own mail server.
-3. **Upload your resume** — PDF or DOCX (up to 10 MB). Stored per user, attached to every outgoing application email.
-4. **Add companies** — one row per HR contact. Company + role pairs are grouped: all HR contacts at the same company applying for the same role share a single AI-generated cover letter.
-5. **AI generates cover letters in the background** — one OpenAI call per company + role group. Email addresses are validated (SMTP/MX check) in parallel.
-6. **Review and edit** — open the Review modal to edit the shared cover letter, subject, per-HR names, and email addresses before anything is sent.
-7. **Approve and send** — select individual rows (or "Select all ready") and click **Send selected**. Each HR contact gets a personalised greeting; your resume is attached.
-8. **Follow up** — sent emails show a purple follow-up checkbox. Select them and click **Send follow-ups** to send a short reply in the same email thread.
+1. **Sign up / Sign in** — each user has their own isolated data and SMTP credentials. The **first** account registered automatically becomes the Superuser (SU).
+2. **Complete your profile** — set your name, headline, skills, phone, SMTP settings, and optionally your own OpenAI API key.
+3. **Get OpenAI access** — either add your own key in Profile settings, or request shared access from the SU. The SU can approve, deny, or revoke access from the admin panel on the dashboard.
+4. **Upload your resume** — PDF or DOCX (up to 10 MB). Stored per user, attached to every outgoing application email.
+5. **Add companies** — one row per HR contact. Company + role pairs are grouped: all HR contacts share a single AI-generated cover letter.
+6. **AI generates cover letters in the background** — one OpenAI call per company + role group. Email addresses are validated (SMTP/MX check) in parallel.
+7. **Review and edit** — open the Review modal to edit the shared cover letter, subject, per-HR names, and email addresses before anything is sent.
+8. **Approve and send** — select individual rows (or "Select all ready") and click **Send selected**. Each HR contact gets a personalised greeting; your resume is attached.
+9. **Follow up** — sent emails show a purple follow-up checkbox. Select them and click **Send follow-ups** to send a short reply in the same email thread.
 
 > **Emails are never sent automatically.** The workflow is always **Generate → Review/Edit → Approve → Send**.
+
+---
+
+## Roles & OpenAI access
+
+### Roles
+
+| Role | How assigned | Capabilities |
+|---|---|---|
+| `user` | Default for all new registrations after the first | Standard — manage own applications, SMTP, resume |
+| `su` (Superuser) | Automatically given to the **first** registered account | All user capabilities + Admin panel to approve/deny/revoke OpenAI access requests |
+
+There is currently one SU at a time. To promote another user, update the `role` column in the `User` table directly in your database.
+
+### OpenAI key resolution (per user)
+
+When generating a cover letter, the server resolves the OpenAI key in this order:
+
+1. **User's own key** — entered in Profile settings, stored encrypted (AES-256-GCM). Takes priority over everything.
+2. **Shared server key** — the `OPENAI_API_KEY` in `server/.env`, only available if the SU has **approved** the user's subscription request.
+3. **Error** — if neither is available, cover letter generation fails with a descriptive message directing the user to Profile settings.
+
+### Getting OpenAI access (regular users)
+
+1. Open **Settings → Profile**
+2. Either paste your own key in the **OpenAI API key** field, or
+3. Click **Request shared access**, optionally add a note, and submit
+4. The SU sees the request in the **Admin** panel on their dashboard and can approve or deny it with an optional review note
+
+### Managing access (SU)
+
+The **Admin — OpenAI Access Requests** panel appears at the top of the SU's dashboard. Each request shows the user's name, email, status, and message. Actions:
+- **Review** → expands an optional note field → **Approve** or **Deny**
+- **Revoke** — reverts an approved subscription back to denied
 
 ---
 
@@ -267,6 +302,17 @@ All endpoints (except `/api/health`, `/api/auth/*`) require a `Bearer <token>` h
 | `GET` | `/api/resume` | Current resume metadata for the authenticated user |
 | `POST` | `/api/resume` | Multipart upload (`resume` field). Replaces previous. |
 | `DELETE` | `/api/resume` | Remove saved resume |
+
+### Subscriptions (OpenAI access requests)
+
+| Method | Path | Who | Description |
+|---|---|---|---|
+| `GET` | `/api/subscriptions/my` | Any user | Get own subscription request status |
+| `POST` | `/api/subscriptions/request` | Any user | Submit or re-submit a request for shared OpenAI access |
+| `GET` | `/api/subscriptions` | SU only | List all subscription requests |
+| `POST` | `/api/subscriptions/:id/approve` | SU only | Approve a request (optional `{ reviewNote }`) |
+| `POST` | `/api/subscriptions/:id/deny` | SU only | Deny a request (optional `{ reviewNote }`) |
+| `POST` | `/api/subscriptions/:id/revoke` | SU only | Revoke a previously approved subscription |
 
 ### Applications
 

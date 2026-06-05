@@ -73,14 +73,16 @@ passport.use(new GoogleStrategy({
       let user = await prisma.user.findUnique({ where: { googleId: profile.id } });
       if (!user) {
         log.info(OAUTH, 'Creating new user from Google profile', { googleId: profile.id, email });
+        const isFirst = (await prisma.user.count()) === 0;
         user = await prisma.user.create({
           data: {
             googleId: profile.id,
             email,
             name: profile.displayName,
+            role: isFirst ? 'su' : 'user',
           },
         });
-        await logAudit(user.id, 'USER_REGISTERED', 'User', user.id, { provider: 'google' });
+        await logAudit(user.id, 'USER_REGISTERED', 'User', user.id, { provider: 'google', role: user.role });
         log.info(OAUTH, 'User registered via Google', { userId: user.id, email: user.email });
         await getOrCreateProfile(user.id, {
           applicantName: profile.displayName || '',
@@ -121,15 +123,18 @@ router.post('/register', async (req, res) => {
     if (existing) return res.status(400).json({ error: 'Email already in use' });
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({ data: { email, passwordHash, name } });
-    
-    await logAudit(user.id, 'USER_REGISTERED', 'User', user.id, { provider: 'local' });
+    const isFirst = (await prisma.user.count()) === 0;
+    const user = await prisma.user.create({
+      data: { email, passwordHash, name, role: isFirst ? 'su' : 'user' },
+    });
+
+    await logAudit(user.id, 'USER_REGISTERED', 'User', user.id, { provider: 'local', role: user.role });
     await getOrCreateProfile(user.id, {
       applicantName: name,
       mailFromAddress: email,
       mailFromName: name,
     });
-    res.json({ token: signToken(user.id), user: { id: user.id, email: user.email, name: user.name } });
+    res.json({ token: signToken(user.id), user: { id: user.id, email: user.email, name: user.name, role: user.role } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -152,7 +157,7 @@ router.post('/login', async (req, res) => {
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
     await logAudit(user.id, 'USER_LOGGED_IN', 'User', user.id);
-    res.json({ token: signToken(user.id), user: { id: user.id, email: user.email, name: user.name } });
+    res.json({ token: signToken(user.id), user: { id: user.id, email: user.email, name: user.name, role: user.role } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
