@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: applymate
+    runtime: node
+    plan: starter          # "free" works but sleeps + has no persistent disk
+    region: oregon         # pick the region closest to your Neon DB
+    healthCheckPath: /api/health
+    buildCommand: |
+      npm ci --prefix client && npm run build --prefix client
+      npm ci --prefix server
+      npx prisma generate --schema server/prisma/schema.prisma
+      npx prisma db push --schema server/prisma/schema.prisma
+    startCommand: npm start --prefix server
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/server/uploads
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PROFILE_ENCRYPTION_KEY
+        sync: false          # 64-char hex: openssl rand -hex 32
+      - key: DATABASE_URL
+        sync: false          # your Neon connection string (pooled, sslmode=require)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: CLIENT_URL
+        sync: false          # = your deployed URL, e.g. https://applymate.onrender.com
+      - key: GOOGLE_CALLBACK_URL
+        sync: false          # = <deployed URL>/api/auth/google/callback

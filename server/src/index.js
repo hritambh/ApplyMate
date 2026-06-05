@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import passport from 'passport';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Import your routes
 import authRouter from './routes/auth.js';
@@ -36,8 +38,19 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// 404 + global error handler (must be after all routes)
+// 404 handler for unknown API routes (must be before the SPA fallback)
 app.use('/api', notFoundHandler);
+
+// Serve the built React app (production). Any non-/api route falls through
+// to index.html so client-side routing works.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDist = path.resolve(__dirname, '..', '..', 'client', 'dist');
+app.use(express.static(clientDist));
+app.get(/^(?!\/api).*/, (_req, res) => {
+  res.sendFile(path.join(clientDist, 'index.html'));
+});
+
+// Global error handler (must be after all routes)
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 4000;

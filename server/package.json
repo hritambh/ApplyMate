@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env src/index.js",
+    "start": "node src/index.js",
     "dev": "node --env-file=.env --watch src/index.js",
     "dev:debug": "node --inspect=9235 --env -file=.env --watch src/index.js",
     "debug": "node --inspect=9235 --env-file=.env --watch src/index.js"
