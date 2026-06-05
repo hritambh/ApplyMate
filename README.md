@@ -116,6 +116,44 @@ The Vite dev server proxies `/api/*` to `http://localhost:4000`.
 
 ---
 
+## Debugging
+
+### Option A — Attach from terminal (recommended for daily use)
+
+Start the server with the inspector open, then attach VSCode:
+
+```bash
+cd server
+npm run debug        # node --inspect=9235 --env-file=.env --watch src/index.js
+```
+
+In VSCode open the **Run and Debug** panel (`Ctrl+Shift+D` / `Cmd+Shift+D`) and select **"Attach to Backend (9235)"**, then click the green play button. The debugger attaches and reconnects automatically whenever `--watch` restarts the process.
+
+### Option B — Launch from VSCode
+
+Use **"Launch Backend"** to have VSCode start the server and attach the debugger in one step. The integrated terminal shows server output; breakpoints work immediately.
+
+Use **"Launch Backend (break on start)"** to pause execution on the very first line — useful for debugging startup errors (e.g. database connection failures, missing env vars).
+
+### Option C — Full stack in one click
+
+Select **"Full Stack Debug"** (compound configuration). VSCode launches the backend with the debugger on port 9235 **and** opens the frontend at `http://localhost:5173` in Chrome simultaneously. Set breakpoints in both server `.js` files and client `.jsx` files.
+
+> The frontend must already be running (`cd client && npm run dev`) for the Chrome launch to connect, unless you start it separately first.
+
+### Breakpoint tips
+
+| What you want to debug | Where to set the breakpoint |
+|---|---|
+| Incoming request | Top of the relevant route handler in `routes/*.js` |
+| Cover letter generation | `services/coverLetter.js` |
+| Email send / follow-up | `services/mailer.js` or the `send` / `send-followups` route |
+| Auth / JWT | `middleware/auth.js` or `routes/auth.js` |
+| Database queries | Any `prisma.*` call in `routes/` or `services/` |
+| Startup / env loading | Use "Launch Backend (break on start)" to catch early failures |
+
+---
+
 ## Environment variables (`server/.env`)
 
 | Key | Required | Purpose |

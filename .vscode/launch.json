@@ -2,9 +2,10 @@
   "version": "0.2.0",
   "configurations": [
     {
+      // Use when the server is already running via: cd server && npm run dev:debug
       "type": "node",
       "request": "attach",
-      "name": "Attach to Backend (port 9235)",
+      "name": "Attach to Backend (9235)",
       "port": 9235,
       "address": "127.0.0.1",
       "restart": true,
@@ -12,15 +13,54 @@
       "skipFiles": ["<node_internals>/**"]
     },
     {
+      // Launches the server directly from VSCode with debugger on port 9235
       "type": "node",
       "request": "launch",
-      "name": "Run Backend",
+      "name": "XX Launch Backend",
       "cwd": "${workspaceFolder}/server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--inspect=9235",
+        "--env-file=.env",
+        "--watch"
+      ],
       "program": "${workspaceFolder}/server/src/index.js",
-      "runtimeArgs": ["--watch"],
-      "envFile": "${workspaceFolder}/server/.env",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // Launches the server and pauses at the first line — useful for startup bugs
+      "type": "node",
+      "request": "launch",
+      "name": "XX Launch Backend (break on start)",
+      "cwd": "${workspaceFolder}/server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--inspect-brk=9235",
+        "--env-file=.env"
+      ],
+      "program": "${workspaceFolder}/server/src/index.js",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      // Attach to the Vite frontend dev server (browser debugging via Edge/Chrome)
+      "type": "chrome",
+      "request": "launch",
+      "name": "Launch Frontend (Chrome)",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/client/src",
+      "sourceMapPathOverrides": {
+        "/@fs/*": "${workspaceFolder}/*"
+      }
+    }
+  ],
+  "compounds": [
+    {
+      // Starts backend (with debugger) + opens frontend in Chrome simultaneously
+      "name": "Full Stack Debug",
+      "configurations": ["Launch Backend", "Launch Frontend (Chrome)"],
+      "stopAll": true
     }
   ]
 }
