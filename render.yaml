@@ -6,7 +6,7 @@ services:
     region: oregon         # pick the region closest to your Neon DB
     healthCheckPath: /api/health
     buildCommand: |
-      npm ci --prefix client && npm run build --prefix client
+      npm ci --include=dev --prefix client && npm run build --prefix client
       npm ci --prefix server
       npx prisma generate --schema server/prisma/schema.prisma
       npx prisma db push --schema server/prisma/schema.prisma
