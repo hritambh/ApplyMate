@@ -15,6 +15,7 @@ const EMPTY = {
   mailFromAddress: '',
   openaiKey: '',
   linkedinUrl: '',
+  theme: 'light',
 };
 
 export default function ProfileSetup({
@@ -22,6 +23,8 @@ export default function ProfileSetup({
   onComplete,
   onCancel,
   onBackToSignIn,
+  theme,
+  onThemeChange,
   banner,
   setBanner,
   required = true,
@@ -49,6 +52,7 @@ export default function ProfileSetup({
         mailFromAddress: initialProfile.mailFromAddress || '',
         openaiKey: '',
         linkedinUrl: initialProfile.linkedinUrl || '',
+        theme: initialProfile.theme === 'dark' ? 'dark' : 'light',
       });
     }
 
@@ -60,6 +64,13 @@ export default function ProfileSetup({
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setForm((f) => ({ ...f, [key]: value }));
   };
+
+  const handleThemeSelect = (value) => {
+    setForm((f) => ({ ...f, theme: value }));
+    onThemeChange?.(value); // live preview
+  };
+
+  const activeTheme = form.theme || theme || 'light';
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -109,6 +120,7 @@ export default function ProfileSetup({
 
   const openaiConfigured = initialProfile?.openaiKeyConfigured;
   const openaiSource = initialProfile?.openaiSource;
+  const freeCredits = initialProfile?.freeCredits ?? 0;
   const subStatus = subscription?.status ?? initialProfile?.subscriptionStatus;
 
   return (
@@ -128,6 +140,29 @@ export default function ProfileSetup({
         )}
 
         <form className="profile-form" onSubmit={handleSave}>
+          <fieldset className="profile-section">
+            <legend>Appearance</legend>
+            <p className="profile-hint">Choose how ApplyMate looks. This is saved to your profile.</p>
+            <div className="theme-toggle" role="group" aria-label="Theme">
+              <button
+                type="button"
+                className={`theme-option ${activeTheme === 'light' ? 'active' : ''}`}
+                onClick={() => handleThemeSelect('light')}
+                disabled={busy}
+              >
+                ☀︎ Light
+              </button>
+              <button
+                type="button"
+                className={`theme-option ${activeTheme === 'dark' ? 'active' : ''}`}
+                onClick={() => handleThemeSelect('dark')}
+                disabled={busy}
+              >
+                ☾ Dark
+              </button>
+            </div>
+          </fieldset>
+
           <fieldset className="profile-section">
             <legend>About you (cover letters)</legend>
             <label className="auth-field">
@@ -203,9 +238,18 @@ export default function ProfileSetup({
                 </button>
               </div>
             )}
-            {!openaiConfigured && openaiSource === 'shared' && (
-              <div className="profile-hint" style={{ color: '#16a34a', marginBottom: 8 }}>
-                Shared access approved — you are using the server key.
+            {!openaiConfigured && openaiSource === 'free' && (
+              <div
+                className="profile-hint"
+                style={{ color: freeCredits <= 5 ? '#d97706' : '#16a34a', marginBottom: 8 }}
+              >
+                You have <strong>{freeCredits}</strong> cover letter credit{freeCredits === 1 ? '' : 's'} remaining.
+                {freeCredits <= 5 && ' Add your own key or request more credits to keep going.'}
+              </div>
+            )}
+            {!openaiConfigured && freeCredits === 0 && (
+              <div className="profile-hint" style={{ color: '#ef4444', marginBottom: 8 }}>
+                You've used all your credits. Add your own OpenAI key below, or request more from the admin.
               </div>
             )}
 
@@ -221,10 +265,10 @@ export default function ProfileSetup({
               />
             </label>
 
-            {/* Shared access request section */}
-            {!openaiConfigured && openaiSource !== 'shared' && (
+            {/* Credit request section */}
+            {!openaiConfigured && (
               <div className="profile-hint" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
-                <strong>Or request shared access from the admin</strong>
+                <strong>Or request more credits from the admin</strong>
                 {subStatus === 'pending' && (
                   <p style={{ color: '#d97706', margin: '6px 0 0' }}>
                     Request pending — the admin will review soon.
@@ -253,7 +297,7 @@ export default function ProfileSetup({
                       onClick={handleRequestAccess}
                       disabled={subBusy}
                     >
-                      {subBusy ? 'Submitting…' : subStatus === 'denied' ? 'Re-submit request' : 'Request shared access'}
+                      {subBusy ? 'Submitting…' : subStatus === 'denied' ? 'Re-submit request' : 'Request more credits'}
                     </button>
                   </>
                 )}

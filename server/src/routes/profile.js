@@ -17,16 +17,15 @@ const CTX = 'profile';
 
 async function buildProfileResponse(userId, record) {
   const sub = await prisma.subscriptionRequest.findUnique({ where: { userId } });
-  const openaiSource = record.openaiKeyEnc
-    ? 'own'
-    : sub?.status === 'approved'
-      ? 'shared'
-      : null;
+  const freeCredits = Math.max(0, record.freeCredits ?? 0);
+  const openaiSource = record.openaiKeyEnc ? 'own' : freeCredits > 0 ? 'free' : null;
 
   return {
     profile: toPublicProfile(record, {
       role: record._role,
       openaiSource,
+      freeCredits,
+      creditsUsed: Math.max(0, record.creditsUsed ?? 0),
       subscriptionStatus: sub?.status ?? null,
     }),
     complete: isProfileComplete(record),
@@ -56,6 +55,22 @@ router.put('/', async (req, res) => {
     res.json(await buildProfileResponse(req.user.id, record));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Lightweight theme-only update — avoids re-validating the full profile so the
+// top-bar toggle works even before the profile is otherwise complete.
+router.put('/theme', async (req, res) => {
+  try {
+    const theme = req.body.theme === 'dark' ? 'dark' : 'light';
+    await prisma.userProfile.upsert({
+      where: { userId: req.user.id },
+      update: { theme },
+      create: { userId: req.user.id, theme },
+    });
+    res.json({ ok: true, theme });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -34,6 +34,9 @@ export function toPublicProfile(record, extras = {}) {
     mailFromAddress: record.mailFromAddress,
     openaiKeyConfigured: Boolean(record.openaiKeyEnc),
     linkedinUrl: record.linkedinUrl || '',
+    theme: record.theme === 'dark' ? 'dark' : 'light',
+    freeCredits: Math.max(0, record.freeCredits ?? 0),
+    creditsUsed: Math.max(0, record.creditsUsed ?? 0),
     complete: isProfileComplete(record),
     ...extras,
   };
@@ -67,10 +70,16 @@ export async function getProfileForUser(userId) {
 }
 
 /**
- * Resolves the OpenAI API key for a user:
- *   1. User's own key (stored encrypted in UserProfile)
- *   2. Server shared key — only if SU has approved the user's subscription request
- * Throws a descriptive error if neither is available.
+ * Resolves the OpenAI API key for a user, in priority order:
+ *   1. User's own key (stored encrypted in UserProfile) — never consumes credits.
+ *   2. Credits remaining → shared server key, source 'free' (caller decrements one
+ *      credit per successful generation via consumeFreeCredit).
+ *   3. Otherwise → descriptive error (exhausted / pending request).
+ *
+ * Credits are bounded and granted by the admin (initial allowance + approvals);
+ * there is no unlimited tier.
+ *
+ * Returns { key, source: 'own' | 'free' }.
  */
 export async function resolveOpenAIKey(userId) {
   const profile = await prisma.userProfile.findUnique({ where: { userId } });
@@ -78,21 +87,57 @@ export async function resolveOpenAIKey(userId) {
     try { return { key: decryptSecret(profile.openaiKeyEnc), source: 'own' }; } catch {}
   }
 
+  const sharedKey = process.env.OPENAI_API_KEY;
+  const credits = Math.max(0, profile?.freeCredits ?? 0);
+  if (credits > 0) {
+    if (!sharedKey) throw new Error('Shared OpenAI key is not configured on the server. Contact the administrator.');
+    return { key: sharedKey, source: 'free' };
+  }
+
+  // Credits exhausted — guide the user toward the two ways forward.
   const sub = await prisma.subscriptionRequest.findUnique({ where: { userId } });
-  if (sub?.status === 'approved') {
-    const key = process.env.OPENAI_API_KEY;
-    if (!key) throw new Error('Shared OpenAI key is not configured on the server. Contact the administrator.');
-    return { key, source: 'shared' };
-  }
-
   if (sub?.status === 'pending') {
-    throw new Error('Your request for shared OpenAI access is pending approval. Add your own key or wait for the admin to approve.');
+    throw new Error('Your credits are used up and your request for more is pending admin approval. Add your own OpenAI key to keep generating in the meantime.');
   }
-  if (sub?.status === 'denied') {
-    throw new Error('Your request for shared OpenAI access was denied. Please add your own OpenAI API key in Profile settings.');
-  }
+  throw new Error('You have used all your credits. Add your own OpenAI API key in Profile settings, or request more credits from the admin.');
+}
 
-  throw new Error('No OpenAI key available. Add your own key in Profile settings or request shared access from the admin.');
+/**
+ * Atomically spend one credit: decrement the balance and bump lifetime usage.
+ * Guarded so the balance never goes below zero, even under concurrent
+ * generations. Returns the remaining credit count.
+ */
+export async function consumeFreeCredit(userId) {
+  const res = await prisma.userProfile.updateMany({
+    where: { userId, freeCredits: { gt: 0 } },
+    data: { freeCredits: { decrement: 1 }, creditsUsed: { increment: 1 } },
+  });
+  if (res.count === 0) return 0;
+  const updated = await prisma.userProfile.findUnique({
+    where: { userId },
+    select: { freeCredits: true },
+  });
+  return Math.max(0, updated?.freeCredits ?? 0);
+}
+
+/** Admin: set a user's remaining credit balance to an exact value. */
+export async function setUserCredits(userId, credits) {
+  const value = Math.max(0, Math.floor(Number(credits) || 0));
+  await getOrCreateProfile(userId);
+  await prisma.userProfile.update({ where: { userId }, data: { freeCredits: value } });
+  return value;
+}
+
+/** Admin: add credits to a user's balance (e.g. on approving a request). */
+export async function grantUserCredits(userId, amount) {
+  const inc = Math.max(0, Math.floor(Number(amount) || 0));
+  await getOrCreateProfile(userId);
+  const updated = await prisma.userProfile.update({
+    where: { userId },
+    data: { freeCredits: { increment: inc } },
+    select: { freeCredits: true },
+  });
+  return Math.max(0, updated.freeCredits);
 }
 
 export function validateProfileInput(body, { requirePassword = false, hasExistingPassword = false }) {
@@ -161,6 +206,12 @@ export async function upsertProfile(userId, body) {
     mailFromAddress: String(body.mailFromAddress).trim().toLowerCase(),
     openaiKeyEnc,
     linkedinUrl: String(body.linkedinUrl || '').trim(),
+    theme:
+      body.theme === 'dark'
+        ? 'dark'
+        : body.theme === 'light'
+          ? 'light'
+          : existing.theme || 'light',
   };
 
   return prisma.userProfile.upsert({

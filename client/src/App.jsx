@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   getRecipientEmails,
@@ -17,6 +17,8 @@ import AuthScreen from './components/AuthScreen.jsx';
 import ProfileSetup from './components/ProfileSetup.jsx';
 import AdminPanel from './components/AdminPanel.jsx';
 import HistoryModal from './components/HistoryModal.jsx';
+import JobPortals from './components/JobPortals.jsx';
+import { applyTheme, getStoredTheme } from './theme.js';
 
 export default function App() {
   // --- Auth State ---
@@ -29,7 +31,14 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showJobPortals, setShowJobPortals] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [theme, setThemeState] = useState(getStoredTheme);
+
+  // Apply + persist locally. Server persistence is best-effort (see callers).
+  const setTheme = useCallback((next) => {
+    setThemeState(applyTheme(next));
+  }, []);
 
   // --- Dashboard State ---
   const [health, setHealth] = useState(null);
@@ -51,6 +60,7 @@ export default function App() {
     setProfileComplete(false);
     setShowSettings(false);
     setShowAdmin(false);
+    setShowJobPortals(false);
     setPendingApprovals(0);
     setApplications([]);
     setResume(null);
@@ -114,6 +124,9 @@ export default function App() {
         setUserRole(res.profile.role);
         localStorage.setItem('applymate_role', res.profile.role);
       }
+      if (res.profile?.theme) {
+        setTheme(res.profile.theme);
+      }
       return res;
     } catch (err) {
       if (isUnauthorized(err)) {
@@ -125,7 +138,7 @@ export default function App() {
     } finally {
       setProfileLoading(false);
     }
-  }, [handleSessionExpired]);
+  }, [handleSessionExpired, setTheme]);
 
   const handleProfileComplete = (updatedProfile) => {
     setProfile(updatedProfile);
@@ -180,6 +193,13 @@ export default function App() {
     }
   }, [userRole]);
 
+  const handleToggleTheme = useCallback(() => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    // Persist to the profile (best-effort — local + localStorage already applied)
+    api.setTheme(next).catch(() => {});
+  }, [theme, setTheme]);
+
   // Load profile when authenticated
   useEffect(() => {
     if (isAuthenticated) {
@@ -210,6 +230,20 @@ export default function App() {
     const t = setInterval(refresh, 2500);
     return () => clearInterval(t);
   }, [applications, refresh, isAuthenticated, profileComplete, showSettings]);
+
+  // When cover-letter generation finishes, reload the profile so the free-credit
+  // counter reflects credits just consumed.
+  const anyGenerating = useMemo(
+    () => applications.some((g) => isGroupGenerating(g)),
+    [applications],
+  );
+  const wasGenerating = useRef(false);
+  useEffect(() => {
+    if (wasGenerating.current && !anyGenerating) {
+      loadProfile();
+    }
+    wasGenerating.current = anyGenerating;
+  }, [anyGenerating, loadProfile]);
 
   const reviewTarget = useMemo(
     () => applications.find((a) => a.id === reviewId) || null,
@@ -464,6 +498,8 @@ export default function App() {
         onComplete={handleProfileComplete}
         onCancel={profileComplete ? () => setShowSettings(false) : undefined}
         onBackToSignIn={!profileComplete ? handleLogout : undefined}
+        theme={theme}
+        onThemeChange={setTheme}
         banner={banner}
         setBanner={setBanner}
       />
@@ -514,6 +550,35 @@ export default function App() {
     );
   }
 
+  if (showJobPortals) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <div className="brand">
+            <span className="logo">✉︎</span>
+            <div>
+              <h1>Job Portals</h1>
+              <p className="tagline">Browse openings on popular job boards</p>
+            </div>
+          </div>
+          <div className="health">
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={() => setShowJobPortals(false)}
+            >
+              ← Back to dashboard
+            </button>
+          </div>
+        </header>
+
+        <main className="content">
+          <JobPortals />
+        </main>
+      </div>
+    );
+  }
+
   const applicant = {
     name: profile?.applicantName || '',
     phone: profile?.applicantPhone || '',
@@ -532,14 +597,23 @@ export default function App() {
         </div>
         <div className="health">
           <HealthDot
-            ok={profile?.openaiKeyConfigured || profile?.openaiSource === 'shared'}
-            label={userRole === 'su' ? 'OpenAI (SU)' : 'OpenAI'}
+            ok={
+              profile?.openaiKeyConfigured ||
+              (profile?.freeCredits ?? 0) > 0
+            }
+            label={
+              profile?.openaiKeyConfigured
+                ? userRole === 'su' ? 'OpenAI (SU)' : 'OpenAI'
+                : (profile?.freeCredits ?? 0) > 0
+                  ? `Credits: ${profile?.freeCredits ?? 0}`
+                  : 'No credits'
+            }
             title={
               profile?.openaiKeyConfigured
                 ? 'Using your own OpenAI key'
-                : profile?.openaiSource === 'shared'
-                  ? 'Using shared server key (approved)'
-                  : 'No OpenAI key — add one in Settings'
+                : (profile?.freeCredits ?? 0) > 0
+                  ? `${profile?.freeCredits ?? 0} cover letter credit(s) remaining`
+                  : 'Credits used up — add your own key or request more in Settings'
             }
           />
           <HealthDot ok={profile?.smtpPassConfigured && profile?.smtpHost} label="SMTP" />
@@ -586,6 +660,24 @@ export default function App() {
               )}
             </button>
           )}
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => setShowJobPortals(true)}
+            style={{ marginLeft: 8 }}
+          >
+            Job Portals
+          </button>
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={handleToggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label="Toggle theme"
+            style={{ marginLeft: 8 }}
+          >
+            {theme === 'dark' ? '☀︎ Light' : '☾ Dark'}
+          </button>
           <button
             type="button"
             className="btn ghost small"

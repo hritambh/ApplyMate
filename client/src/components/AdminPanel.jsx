@@ -1,22 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 
 const STATUS_LABEL = { pending: 'Pending', approved: 'Approved', denied: 'Denied' };
 const STATUS_CLASS = { pending: 'badge-pending', approved: 'badge-sent', denied: 'badge-failed' };
+const DEFAULT_GRANT = 50;
 
 export default function AdminPanel({ onError, onPendingChange }) {
-  const [subscriptions, setSubscriptions] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(null); // id of item being actioned
-  const [reviewNote, setReviewNote] = useState('');
-  const [noteFor, setNoteFor] = useState(null); // id of item showing note input
+  const [busy, setBusy] = useState(null); // userId being actioned
+  const [creditDraft, setCreditDraft] = useState({}); // userId -> string value
+  const [grantDraft, setGrantDraft] = useState({}); // userId -> grant amount string
 
   const load = useCallback(async () => {
     try {
-      const res = await api.listSubscriptions();
-      const subs = res.subscriptions || [];
-      setSubscriptions(subs);
-      onPendingChange?.(subs.filter((s) => s.status === 'pending').length);
+      const res = await api.listCreditUsers();
+      const list = res.users || [];
+      setUsers(list);
+      onPendingChange?.(list.filter((u) => u.request?.status === 'pending').length);
     } catch (err) {
       onError?.(err.message);
     } finally {
@@ -26,15 +27,17 @@ export default function AdminPanel({ onError, onPendingChange }) {
 
   useEffect(() => { load(); }, [load]);
 
-  async function action(id, type) {
-    setBusy(id);
+  async function saveCredits(userId) {
+    const raw = creditDraft[userId];
+    const value = Math.max(0, Math.floor(Number(raw)));
+    if (Number.isNaN(value)) {
+      onError?.('Enter a valid credit number.');
+      return;
+    }
+    setBusy(userId);
     try {
-      const note = noteFor === id ? reviewNote : '';
-      if (type === 'approve') await api.approveSubscription(id, note);
-      else if (type === 'deny') await api.denySubscription(id, note);
-      else if (type === 'revoke') await api.revokeSubscription(id);
-      setNoteFor(null);
-      setReviewNote('');
+      await api.setUserCredits(userId, value);
+      setCreditDraft((d) => { const n = { ...d }; delete n[userId]; return n; });
       await load();
     } catch (err) {
       onError?.(err.message);
@@ -43,116 +46,149 @@ export default function AdminPanel({ onError, onPendingChange }) {
     }
   }
 
-  const pending = subscriptions.filter((s) => s.status === 'pending');
-  const rest = subscriptions.filter((s) => s.status !== 'pending');
+  async function approve(user) {
+    const grant = Math.max(0, Math.floor(Number(grantDraft[user.id] ?? DEFAULT_GRANT)));
+    setBusy(user.id);
+    try {
+      await api.approveSubscription(user.request.id, '', grant);
+      setGrantDraft((d) => { const n = { ...d }; delete n[user.id]; return n; });
+      await load();
+    } catch (err) {
+      onError?.(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deny(user) {
+    setBusy(user.id);
+    try {
+      await api.denySubscription(user.request.id, '');
+      await load();
+    } catch (err) {
+      onError?.(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Pending requests first, then everyone else.
+  const sorted = useMemo(() => {
+    const pending = users.filter((u) => u.request?.status === 'pending');
+    const rest = users.filter((u) => u.request?.status !== 'pending');
+    return [...pending, ...rest];
+  }, [users]);
+
+  const pendingCount = useMemo(
+    () => users.filter((u) => u.request?.status === 'pending').length,
+    [users],
+  );
 
   if (loading) return null;
-  if (subscriptions.length === 0) {
-    return (
-      <section className="card admin-panel">
-        <h3>Admin — OpenAI Access Requests</h3>
-        <p className="muted">No subscription requests yet.</p>
-      </section>
-    );
-  }
 
   return (
     <section className="card admin-panel">
-      <h3>Admin — OpenAI Access Requests</h3>
-      {pending.length > 0 && (
+      <h3>Admin — User Credits & Access</h3>
+      {pendingCount > 0 ? (
         <p className="hint" style={{ color: '#d97706' }}>
-          {pending.length} pending request{pending.length > 1 ? 's' : ''} awaiting review
+          {pendingCount} pending request{pendingCount > 1 ? 's' : ''} awaiting review
         </p>
+      ) : (
+        <p className="hint">No pending requests. Adjust any user's credit balance below.</p>
       )}
+
       <div className="table-wrap">
         <table className="apps-table" style={{ fontSize: '0.85rem' }}>
           <thead>
             <tr>
               <th>User</th>
               <th>Email</th>
-              <th>Status</th>
-              <th>Message</th>
-              <th>Requested</th>
+              <th>Remaining</th>
+              <th>Used</th>
+              <th>Set credits</th>
+              <th>Request</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {[...pending, ...rest].map((sub) => (
-              <tr key={sub.id} className={sub.status === 'pending' ? 'group-first' : ''}>
-                <td>{sub.user.name || '—'}</td>
-                <td className="muted">{sub.user.email}</td>
-                <td>
-                  <span className={`badge ${STATUS_CLASS[sub.status] || ''}`}>
-                    {STATUS_LABEL[sub.status] || sub.status}
-                  </span>
-                </td>
-                <td className="muted small">{sub.message || '—'}</td>
-                <td className="muted small">{new Date(sub.createdAt).toLocaleDateString()}</td>
-                <td className="col-actions" style={{ minWidth: 180 }}>
-                  {sub.status === 'pending' && (
-                    <>
-                      {noteFor === sub.id ? (
-                        <div style={{ display: 'flex', gap: 4, flexDirection: 'column' }}>
-                          <input
-                            className="input"
-                            placeholder="Note (optional)"
-                            value={reviewNote}
-                            onChange={(e) => setReviewNote(e.target.value)}
-                            style={{ fontSize: '0.8rem', padding: '2px 6px' }}
-                          />
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <button
-                              className="btn small success"
-                              disabled={busy === sub.id}
-                              onClick={() => action(sub.id, 'approve')}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              className="btn small danger-ghost"
-                              disabled={busy === sub.id}
-                              onClick={() => action(sub.id, 'deny')}
-                            >
-                              Deny
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          className="btn small"
-                          onClick={() => { setNoteFor(sub.id); setReviewNote(''); }}
-                        >
-                          Review
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {sub.status === 'approved' && (
-                    <button
-                      className="btn small danger-ghost"
-                      disabled={busy === sub.id}
-                      onClick={() => action(sub.id, 'revoke')}
-                    >
-                      Revoke
-                    </button>
-                  )}
-                  {sub.status === 'denied' && (
+            {sorted.map((u) => {
+              const status = u.request?.status;
+              const draft = creditDraft[u.id] ?? String(u.creditsRemaining);
+              const dirty = creditDraft[u.id] !== undefined && Number(draft) !== u.creditsRemaining;
+              return (
+                <tr key={u.id} className={status === 'pending' ? 'group-first' : ''}>
+                  <td>
+                    {u.name || '—'}
+                    {u.role === 'su' && <span className="badge badge-reviewed" style={{ marginLeft: 6 }}>SU</span>}
+                    {u.hasOwnKey && (
+                      <div className="muted small" title="Uses their own OpenAI key">own key</div>
+                    )}
+                  </td>
+                  <td className="muted">{u.email}</td>
+                  <td>
+                    <strong style={{ color: u.creditsRemaining === 0 ? '#ef4444' : 'inherit' }}>
+                      {u.creditsRemaining}
+                    </strong>
+                  </td>
+                  <td className="muted">{u.creditsUsed}</td>
+                  <td className="col-actions" style={{ whiteSpace: 'nowrap' }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      value={draft}
+                      onChange={(e) => setCreditDraft((d) => ({ ...d, [u.id]: e.target.value }))}
+                      style={{ width: 64, fontSize: '0.8rem', padding: '2px 6px' }}
+                    />
                     <button
                       className="btn small"
-                      disabled={busy === sub.id}
-                      onClick={() => action(sub.id, 'approve')}
+                      disabled={busy === u.id || !dirty}
+                      onClick={() => saveCredits(u.id)}
+                      style={{ marginLeft: 4 }}
                     >
-                      Approve
+                      Set
                     </button>
-                  )}
-                  {sub.reviewNote && (
-                    <div className="muted small" title={sub.reviewNote}>
-                      Note: {sub.reviewNote.slice(0, 40)}{sub.reviewNote.length > 40 ? '…' : ''}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="muted small">
+                    {status ? (
+                      <span className={`badge ${STATUS_CLASS[status] || ''}`}>
+                        {STATUS_LABEL[status] || status}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                    {u.request?.message && (
+                      <div className="muted small" title={u.request.message} style={{ marginTop: 4 }}>
+                        “{u.request.message.slice(0, 50)}{u.request.message.length > 50 ? '…' : ''}”
+                      </div>
+                    )}
+                  </td>
+                  <td className="col-actions" style={{ minWidth: 200 }}>
+                    {status === 'pending' ? (
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span className="muted small">Grant</span>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          value={grantDraft[u.id] ?? DEFAULT_GRANT}
+                          onChange={(e) => setGrantDraft((d) => ({ ...d, [u.id]: e.target.value }))}
+                          style={{ width: 56, fontSize: '0.8rem', padding: '2px 6px' }}
+                        />
+                        <button className="btn small success" disabled={busy === u.id} onClick={() => approve(u)}>
+                          Approve
+                        </button>
+                        <button className="btn small danger-ghost" disabled={busy === u.id} onClick={() => deny(u)}>
+                          Deny
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="muted small">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

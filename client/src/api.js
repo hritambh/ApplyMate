@@ -132,6 +132,13 @@ export const api = {
       body: JSON.stringify(profile),
     }),
 
+  setTheme: (theme) =>
+    request('/profile/theme', {
+      method: 'PUT',
+      headers: authJsonHeaders(),
+      body: JSON.stringify({ theme }),
+    }),
+
   testSmtp: () =>
     request('/profile/test-smtp', {
       method: 'POST',
@@ -237,11 +244,22 @@ export const api = {
   listSubscriptions: () =>
     request('/subscriptions', { headers: { ...getAuthHeaders() } }),
 
-  approveSubscription: (id, reviewNote = '') =>
+  // Admin: per-user credit overview + controls
+  listCreditUsers: () =>
+    request('/subscriptions/users', { headers: { ...getAuthHeaders() } }),
+
+  setUserCredits: (userId, credits) =>
+    request(`/subscriptions/users/${userId}/credits`, {
+      method: 'PUT',
+      headers: authJsonHeaders(),
+      body: JSON.stringify({ credits }),
+    }),
+
+  approveSubscription: (id, reviewNote = '', grantCredits) =>
     request(`/subscriptions/${id}/approve`, {
       method: 'POST',
       headers: authJsonHeaders(),
-      body: JSON.stringify({ reviewNote }),
+      body: JSON.stringify({ reviewNote, grantCredits }),
     }),
 
   denySubscription: (id, reviewNote = '') =>

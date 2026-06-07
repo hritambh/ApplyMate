@@ -796,6 +796,18 @@ code {
   padding: 32px;
 }
 
+/* Full-page themed background for the sign-in screen */
+.auth-bg {
+  background-image: url('/media/light.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+[data-theme='dark'] .auth-bg {
+  background-image: url('/media/dark.png');
+}
+
 .auth-title {
   margin: 0 0 8px;
   font-size: 24px;
@@ -898,18 +910,23 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   width: 100%;
-  padding: 12px;
+  padding: 11px;
   text-decoration: none;
-  background: #4285f4;
-  color: #fff;
-  border: none;
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
   border-radius: 8px;
   font-weight: 600;
 }
 
 .auth-google:hover {
-  background: #3367d6;
+  background: #f7f8f8;
+}
+
+.auth-google svg {
+  flex-shrink: 0;
 }
 
 /* Profile setup */
@@ -1000,4 +1017,178 @@ code {
   font-size: 14px;
   font-family: inherit;
   resize: vertical;
+}
+
+/* Job Portals */
+.portal-section {
+  margin-top: 20px;
+}
+.portal-section-title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.portal-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.12s, transform 0.05s, box-shadow 0.12s;
+}
+.portal-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.portal-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.portal-logo-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  border-color: var(--primary);
+}
+.portal-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.portal-name {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.portal-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Theme toggle (profile + segmented control) */
+.theme-toggle {
+  display: inline-flex;
+  gap: 4px;
+  background: #f3f4f8;
+  border-radius: 10px;
+  padding: 4px;
+  align-self: flex-start;
+}
+.theme-option {
+  border: 0;
+  background: transparent;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.theme-option.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.theme-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   Dark theme — overrides the CSS variables, plus targeted fixes
+   for the handful of hardcoded light surfaces in the styles above.
+   ============================================================ */
+[data-theme='dark'] {
+  --bg: #0f1117;
+  --surface: #181b24;
+  --border: #2a2f3d;
+  --text: #e6e8ef;
+  --muted: #9aa3b8;
+  --primary: #6366f1;
+  --primary-700: #818cf8;
+  --reviewed: #60a5fa;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='dark'] body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Form controls pick up the dark surface + text */
+[data-theme='dark'] input,
+[data-theme='dark'] textarea,
+[data-theme='dark'] select {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+[data-theme='dark'] input::placeholder,
+[data-theme='dark'] textarea::placeholder {
+  color: #6b7385;
+}
+
+/* Hardcoded light surfaces → dark equivalents */
+[data-theme='dark'] .theme-toggle,
+[data-theme='dark'] .tabs,
+[data-theme='dark'] .auth-tabs,
+[data-theme='dark'] .stat,
+[data-theme='dark'] .apps-table thead th,
+[data-theme='dark'] .modal-footer,
+[data-theme='dark'] .company-card,
+[data-theme='dark'] .contact-card .contact-name,
+[data-theme='dark'] .contact-email-row input,
+[data-theme='dark'] .form-row input,
+[data-theme='dark'] .form-row textarea,
+[data-theme='dark'] code {
+  background: #20242f;
+}
+[data-theme='dark'] .form-row textarea.readonly {
+  background: #15171f;
+}
+[data-theme='dark'] .apps-table tbody tr.selected {
+  background: #1d2336;
+}
+[data-theme='dark'] .btn:hover:not(:disabled) {
+  background: #232838;
+}
+[data-theme='dark'] .btn.primary,
+[data-theme='dark'] .btn.success {
+  color: #fff;
+}
+[data-theme='dark'] .btn.primary-outline {
+  background: #1d2336;
+}
+[data-theme='dark'] .btn.primary-outline:hover:not(:disabled) {
+  background: #232a45;
+}
+[data-theme='dark'] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.6);
 }

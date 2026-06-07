@@ -4,7 +4,7 @@ import { readDB, updateDB } from '../store.js';
 import { generateCoverLetter, buildEmailFromCoverLetter } from '../services/coverLetter.js';
 import { checkEmailExists } from '../services/emailValidate.js';
 import { sendApplicationEmail } from '../services/mailer.js';
-import { getProfileForUser, isProfileComplete, resolveOpenAIKey } from '../services/userProfile.js';
+import { getProfileForUser, isProfileComplete, resolveOpenAIKey, consumeFreeCredit } from '../services/userProfile.js';
 import { getResumeAttachment } from './resume.js';
 import { groupKey } from '../utils/groupKey.js';
 import { migrateApplications } from '../utils/migrateApplications.js';
@@ -1067,13 +1067,19 @@ async function generateForGroup(groupId, userId) {
     recipients: group.recipients.length,
   });
 
-  const { key: openaiKey } = await resolveOpenAIKey(userId);
+  const { key: openaiKey, source: openaiSource } = await resolveOpenAIKey(userId);
 
   const coverLetter = await withTimeout(
     generateCoverLetter({ company, role, profile, openaiKey }),
     COVER_LETTER_TIMEOUT_MS,
     'Cover letter generation',
   );
+
+  // Freemium: a successful generation on the shared free tier costs one credit.
+  if (openaiSource === 'free') {
+    const remaining = await consumeFreeCredit(userId);
+    log.info(CTX, 'Free credit consumed', { userId, groupId, remaining });
+  }
   const { subject } = buildEmailFromCoverLetter({
     hrName,
     company,

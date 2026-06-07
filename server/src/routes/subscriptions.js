@@ -2,11 +2,15 @@ import { Router } from 'express';
 import { prisma, logAudit } from '../db.js';
 import { authenticate } from '../middleware/auth.js';
 import { requireSU } from '../middleware/requireSU.js';
+import { grantUserCredits, setUserCredits } from '../services/userProfile.js';
 import { log } from '../utils/logger.js';
 
 const router = Router();
 router.use(authenticate);
 const CTX = 'subscriptions';
+
+// Default credits granted when an admin approves a request without specifying an amount.
+const DEFAULT_GRANT = 50;
 
 // --- User routes ---
 
@@ -31,8 +35,8 @@ router.post('/request', async (req, res) => {
       where: { userId: req.user.id },
     });
 
-    if (existing?.status === 'approved') {
-      return res.status(400).json({ error: 'Your subscription is already approved.' });
+    if (existing?.status === 'pending') {
+      return res.status(400).json({ error: 'You already have a pending request awaiting review.' });
     }
 
     const sub = await prisma.subscriptionRequest.upsert({
@@ -66,15 +70,68 @@ router.get('/', requireSU, async (req, res) => {
   }
 });
 
-// Approve a subscription request
+// Admin: full credit overview of every user (balance, lifetime used, request state).
+router.get('/users', requireSU, async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        profile: { select: { freeCredits: true, creditsUsed: true, openaiKeyEnc: true } },
+        subscriptionRequest: {
+          select: { id: true, status: true, message: true, reviewNote: true, createdAt: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const result = users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      createdAt: u.createdAt,
+      creditsRemaining: Math.max(0, u.profile?.freeCredits ?? 0),
+      creditsUsed: Math.max(0, u.profile?.creditsUsed ?? 0),
+      hasOwnKey: Boolean(u.profile?.openaiKeyEnc),
+      request: u.subscriptionRequest || null,
+    }));
+
+    res.json({ users: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: set a user's remaining credit balance to an exact value.
+router.put('/users/:userId/credits', requireSU, async (req, res) => {
+  const { credits } = req.body || {};
+  if (credits === undefined || Number.isNaN(Number(credits)) || Number(credits) < 0) {
+    return res.status(400).json({ error: 'Body must include a non-negative number: { credits }' });
+  }
+  try {
+    const value = await setUserCredits(req.params.userId, credits);
+    log.info(CTX, 'Credits set by admin', { userId: req.params.userId, credits: value, by: req.user.id });
+    await logAudit(req.user.id, 'CREDITS_SET', 'UserProfile', req.params.userId, { credits: value });
+    res.json({ ok: true, userId: req.params.userId, creditsRemaining: value });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Approve a subscription request — grants a bounded number of credits.
 router.post('/:id/approve', requireSU, async (req, res) => {
   const reviewNote = String(req.body.reviewNote || '').trim().slice(0, 500);
+  const grant = req.body.grantCredits === undefined ? DEFAULT_GRANT : Math.max(0, Math.floor(Number(req.body.grantCredits) || 0));
   try {
     const sub = await prisma.subscriptionRequest.update({
       where: { id: req.params.id },
       data: {
         status: 'approved',
-        reviewNote: reviewNote || null,
+        reviewNote: reviewNote || `Granted ${grant} credits`,
         reviewedById: req.user.id,
         reviewedAt: new Date(),
       },
@@ -82,9 +139,10 @@ router.post('/:id/approve', requireSU, async (req, res) => {
         user: { select: { id: true, name: true, email: true } },
       },
     });
-    log.info(CTX, 'Subscription approved', { subId: sub.id, userId: sub.userId, by: req.user.id });
-    await logAudit(req.user.id, 'SUBSCRIPTION_APPROVED', 'SubscriptionRequest', sub.id, { targetUserId: sub.userId });
-    res.json({ subscription: sub });
+    const creditsRemaining = await grantUserCredits(sub.userId, grant);
+    log.info(CTX, 'Subscription approved', { subId: sub.id, userId: sub.userId, grant, creditsRemaining, by: req.user.id });
+    await logAudit(req.user.id, 'SUBSCRIPTION_APPROVED', 'SubscriptionRequest', sub.id, { targetUserId: sub.userId, grant });
+    res.json({ subscription: sub, creditsRemaining });
   } catch (err) {
     res.status(err.code === 'P2025' ? 404 : 500).json({ error: err.code === 'P2025' ? 'Request not found' : err.message });
   }

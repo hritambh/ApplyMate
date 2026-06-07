@@ -1,0 +1,64 @@
+{
+  "portals": [
+    {
+      "name": "LinkedIn Jobs",
+      "url": "https://www.linkedin.com/jobs/",
+      "tags": ["general", "remote"]
+    },
+    {
+      "name": "Indeed",
+      "url": "https://www.indeed.com/",
+      "tags": ["general"]
+    },
+    {
+      "name": "Naukri",
+      "url": "https://www.naukri.com/",
+      "tags": ["general", "india"]
+    },
+    {
+      "name": "Glassdoor",
+      "url": "https://www.glassdoor.com/Job/index.htm",
+      "tags": ["general", "reviews"]
+    },
+    {
+      "name": "Wellfound (AngelList Talent)",
+      "url": "https://wellfound.com/jobs",
+      "tags": ["startup", "tech", "remote"]
+    },
+    {
+      "name": "Monster",
+      "url": "https://www.monster.com/jobs/",
+      "tags": ["general"]
+    },
+    {
+      "name": "Hirist",
+      "url": "https://www.hirist.tech/",
+      "tags": ["tech", "india"]
+    },
+    {
+      "name": "Instahyre",
+      "url": "https://www.instahyre.com/",
+      "tags": ["tech", "india"]
+    },
+    {
+      "name": "Cutshort",
+      "url": "https://cutshort.io/",
+      "tags": ["tech", "startup", "india"]
+    },
+    {
+      "name": "Y Combinator Jobs",
+      "url": "https://www.ycombinator.com/jobs",
+      "tags": ["startup", "tech", "remote"]
+    },
+    {
+      "name": "Remote OK",
+      "url": "https://remoteok.com/",
+      "tags": ["remote", "tech"]
+    },
+    {
+      "name": "We Work Remotely",
+      "url": "https://weworkremotely.com/",
+      "tags": ["remote"]
+    }
+  ]
+}

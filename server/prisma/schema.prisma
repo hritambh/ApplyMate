@@ -39,6 +39,9 @@ model UserProfile {
   mailFromAddress   String  @default("")
   openaiKeyEnc      String? // encrypted per-user OpenAI key (optional)
   linkedinUrl       String  @default("")
+  theme             String  @default("light") // UI theme: "light" | "dark"
+  freeCredits       Int     @default(50) // credits remaining (shared-key cover letters)
+  creditsUsed       Int     @default(0) // lifetime credits consumed (admin visibility)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
