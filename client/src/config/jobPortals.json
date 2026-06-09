@@ -59,6 +59,46 @@
       "name": "We Work Remotely",
       "url": "https://weworkremotely.com/",
       "tags": ["remote"]
+    },
+    {
+      "name": "Jobgether",
+      "url": "https://jobgether.com/",
+      "tags": ["remote"]
+    },
+    {
+      "name": "Remote.co",
+      "url": "https://remote.co/",
+      "tags": ["remote"]
+    },
+    {
+      "name": "FlexJobs",
+      "url": "https://www.flexjobs.com/",
+      "tags": ["remote"]
+    },
+    {
+      "name": "Remotive",
+      "url": "https://remotive.com/",
+      "tags": ["remote", "tech", "startup"]
+    },
+    {
+      "name": "Upwork",
+      "url": "https://www.upwork.com/",
+      "tags": ["remote", "freelance"]
+    },
+    {
+      "name": "Toptal",
+      "url": "https://www.toptal.com/",
+      "tags": ["remote", "freelance", "tech"]
+    },
+    {
+      "name": "Himalayas",
+      "url": "https://himalayas.app/",
+      "tags": ["remote"]
+    },
+    {
+      "name": "Jobspresso",
+      "url": "https://jobspresso.co/",
+      "tags": ["remote", "tech"]
     }
   ]
 }
