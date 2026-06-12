@@ -11,6 +11,18 @@ import applicationsRouter from './routes/applications.js';
 import profileRouter from './routes/profile.js';
 import subscriptionsRouter from './routes/subscriptions.js';
 import { requestLogger, errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { log } from './utils/logger.js';
+
+// Surface crashes in the pod logs instead of dying silently.
+process.on('uncaughtException', (err) => {
+  log.error('process', 'Uncaught exception', { error: err?.message, stack: err?.stack });
+});
+process.on('unhandledRejection', (reason) => {
+  log.error('process', 'Unhandled promise rejection', {
+    error: reason?.message || String(reason),
+    stack: reason?.stack,
+  });
+});
 
 // 1. Initialize Express
 const app = express();
@@ -58,10 +70,21 @@ app.listen(PORT, () => {
   const keyOk =
     Boolean(process.env.PROFILE_ENCRYPTION_KEY?.trim()) &&
     process.env.PROFILE_ENCRYPTION_KEY.trim().length === 64;
-  console.log(`Server is running on http://localhost:${PORT}`);
+
+  // Startup banner — confirms the process booted and shows config state in pod logs.
+  log.info('startup', `ApplyMate server listening on port ${PORT}`, {
+    nodeEnv: process.env.NODE_ENV || 'development',
+    logLevel: process.env.LOG_LEVEL || 'info',
+    port: Number(PORT),
+    profileKeyConfigured: keyOk,
+    sharedOpenAiKeyConfigured: Boolean(process.env.OPENAI_API_KEY),
+    databaseConfigured: Boolean(process.env.DATABASE_URL),
+  });
+
   if (!keyOk) {
-    console.warn(
-      '[startup] PROFILE_ENCRYPTION_KEY missing or invalid in server/.env — profile save will fail. Run: openssl rand -hex 32',
+    log.warn(
+      'startup',
+      'PROFILE_ENCRYPTION_KEY missing or invalid — profile save and SMTP/OpenAI key decryption will fail. Generate: openssl rand -hex 32',
     );
   }
 });
