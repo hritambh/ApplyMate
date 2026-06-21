@@ -7,6 +7,7 @@ import { sendApplicationEmail } from '../services/mailer.js';
 import { getProfileForUser, isProfileComplete, resolveOpenAIKey, consumeFreeCredit } from '../services/userProfile.js';
 import { getResumeAttachment } from './resume.js';
 import { groupKey } from '../utils/groupKey.js';
+import { capitalizeName } from '../utils/text.js';
 import { migrateApplications } from '../utils/migrateApplications.js';
 import { prisma, logAudit } from '../db.js'; 
 import { authenticate } from '../middleware/auth.js';
@@ -778,7 +779,7 @@ router.delete('/:groupId/recipients/:recipientId', async (req, res) => {
 });
 
 function buildFollowUpBody({ hrName, company, role, applicantName, daysSinceSent, sequence = 1 }) {
-  const greeting = hrName ? `Hi ${hrName},` : 'Hi,';
+  const greeting = hrName ? `Hi ${capitalizeName(hrName)},` : 'Hi,';
   const when = daysSinceSent <= 1 ? 'recently' : `${daysSinceSent} days ago`;
   const opener =
     sequence > 1
@@ -794,7 +795,7 @@ function buildFollowUpBody({ hrName, company, role, applicantName, daysSinceSent
     `Thank you for your time!`,
     '',
     `Best regards,`,
-    applicantName || 'Applicant',
+    capitalizeName(applicantName) || 'Applicant',
   ].join('\n');
 }
 

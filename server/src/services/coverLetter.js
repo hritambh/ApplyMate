@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { normalizeEmailBody } from '../utils/emailBody.js';
+import { capitalizeName } from '../utils/text.js';
 
 function getClient(apiKey) {
   if (!apiKey) throw new Error('OpenAI API key is required');
@@ -74,9 +75,9 @@ export async function generateCoverLetter({ company, role, profile, openaiKey })
 }
 
 export function buildEmailFromCoverLetter({ hrName, company, role, coverLetter, profile }) {
-  const applicantName = (profile?.applicantName || '').trim() || 'Your Name';
+  const applicantName = capitalizeName((profile?.applicantName || '').trim()) || 'Your Name';
   const applicantPhone = (profile?.applicantPhone || '').trim() || '';
-  const greetingName = hrName?.trim() ? hrName.trim() : 'Team';
+  const greetingName = hrName?.trim() ? capitalizeName(hrName.trim()) : 'Team';
   const letter = String(coverLetter || '').trim();
 
   const subject = `Application for ${role} — ${applicantName}`.trim();
