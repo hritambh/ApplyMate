@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
+  countGroupEmailsByStatus,
   getRecipientEmails,
   isEmailChecking,
   isEmailFollowUpable,
@@ -49,6 +50,7 @@ export default function App() {
   const [showBulk, setShowBulk] = useState(false);
   const [reviewId, setReviewId] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [view, setView] = useState('active'); // 'active' | 'history'
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState(null);
 
@@ -268,6 +270,39 @@ export default function App() {
     });
   };
 
+  // Select (or clear) every actionable contact in one company at once.
+  // Sendable emails go to `selected`; already-sent ones go to `selectedFollowUps`,
+  // so the group checkbox works in both the Active and History views.
+  const toggleSelectGroup = useCallback((group) => {
+    const sendIds = [];
+    const followIds = [];
+    for (const r of group.recipients || []) {
+      for (const e of getRecipientEmails(r)) {
+        if (isEmailSendable(group, e)) sendIds.push(e.id);
+        else if (isEmailFollowUpable(e)) followIds.push(e.id);
+      }
+    }
+    const allSelected =
+      sendIds.length + followIds.length > 0 &&
+      sendIds.every((id) => selected.has(id)) &&
+      followIds.every((id) => selectedFollowUps.has(id));
+
+    if (sendIds.length) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const id of sendIds) allSelected ? next.delete(id) : next.add(id);
+        return next;
+      });
+    }
+    if (followIds.length) {
+      setSelectedFollowUps((prev) => {
+        const next = new Set(prev);
+        for (const id of followIds) allSelected ? next.delete(id) : next.add(id);
+        return next;
+      });
+    }
+  }, [selected, selectedFollowUps]);
+
   const sendableEmailIds = useMemo(() => {
     const ids = [];
     for (const g of applications) {
@@ -471,6 +506,17 @@ export default function App() {
     }
     return c;
   }, [applications]);
+
+  // Split the pipeline: "Active" = nothing sent yet (work still to do);
+  // "History" = at least one email sent (companies you've already applied to).
+  const activeApps = useMemo(
+    () => applications.filter((g) => countGroupEmailsByStatus(g, 'sent') === 0),
+    [applications],
+  );
+  const historyApps = useMemo(
+    () => applications.filter((g) => countGroupEmailsByStatus(g, 'sent') > 0),
+    [applications],
+  );
 
   if (!isAuthenticated) {
     return (
@@ -774,51 +820,107 @@ export default function App() {
           </div>
         </section>
 
-        <section className="actions">
-          <button className="btn primary" onClick={() => setShowBulk(true)}>
-            + Add companies
-          </button>
-          <button className="btn" onClick={selectAll} disabled={!sendableEmailIds.length}>
-            Select all ready
-          </button>
-          <button className="btn" onClick={clearSelection} disabled={!selected.size && !selectedFollowUps.size}>
-            Clear selection
-          </button>
-          <button className="btn" onClick={() => setShowHistory(true)}>
-            History
-          </button>
-          <div className="spacer" />
-          {selectedFollowUps.size > 0 && (
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={handleSendFollowUps}
-              style={{ background: '#7c3aed', color: 'white' }}
-            >
-              Send follow-ups ({selectedFollowUps.size})
-            </button>
-          )}
+        <nav className="view-tabs tabs" aria-label="Applications view">
           <button
-            className="btn success"
-            disabled={!selected.size || busy}
-            onClick={handleSendSelected}
+            type="button"
+            className={`tab ${view === 'active' ? 'active' : ''}`}
+            onClick={() => setView('active')}
           >
-            Send selected ({selected.size})
+            Active{activeApps.length ? ` · ${activeApps.length}` : ''}
           </button>
-        </section>
+          <button
+            type="button"
+            className={`tab ${view === 'history' ? 'active' : ''}`}
+            onClick={() => setView('history')}
+          >
+            History{historyApps.length ? ` · ${historyApps.length}` : ''}
+          </button>
+        </nav>
 
-        <ApplicationsTable
-          applications={applications}
-          selected={selected}
-          selectedFollowUps={selectedFollowUps}
-          onToggleSelect={toggleSelect}
-          onToggleFollowUp={toggleSelectFollowUp}
-          onReview={(groupId) => setReviewId(groupId)}
-          onRegenerate={handleRegenerate}
-          onDeleteGroup={handleDeleteGroup}
-          onDeleteRecipient={handleDeleteRecipient}
-          onDeleteEmail={handleDeleteEmail}
-        />
+        {view === 'active' ? (
+          <>
+            <section className="actions">
+              <button className="btn primary" onClick={() => setShowBulk(true)}>
+                + Add companies
+              </button>
+              <button className="btn" onClick={selectAll} disabled={!sendableEmailIds.length}>
+                Select all ready
+              </button>
+              <button
+                className="btn"
+                onClick={clearSelection}
+                disabled={!selected.size && !selectedFollowUps.size}
+              >
+                Clear selection
+              </button>
+              <div className="spacer" />
+              <button
+                className="btn success"
+                disabled={!selected.size || busy}
+                onClick={handleSendSelected}
+              >
+                Send selected ({selected.size})
+              </button>
+            </section>
+
+            <ApplicationsTable
+              applications={activeApps}
+              selected={selected}
+              selectedFollowUps={selectedFollowUps}
+              onToggleSelect={toggleSelect}
+              onToggleSelectGroup={toggleSelectGroup}
+              onToggleFollowUp={toggleSelectFollowUp}
+              onReview={(groupId) => setReviewId(groupId)}
+              onRegenerate={handleRegenerate}
+              onDeleteGroup={handleDeleteGroup}
+              onDeleteRecipient={handleDeleteRecipient}
+              onDeleteEmail={handleDeleteEmail}
+              emptyMessage={
+                <>
+                  Nothing in progress. Click <strong>Add companies</strong> to start a new
+                  application — sent ones move to <strong>History</strong>.
+                </>
+              }
+            />
+          </>
+        ) : (
+          <>
+            <section className="actions">
+              <span className="muted small">
+                Companies you've already applied to. You can still send follow-ups here.
+              </span>
+              <div className="spacer" />
+              <button className="btn ghost" onClick={() => setShowHistory(true)}>
+                View mail log
+              </button>
+              {selectedFollowUps.size > 0 && (
+                <button
+                  className="btn"
+                  disabled={busy}
+                  onClick={handleSendFollowUps}
+                  style={{ background: '#7c3aed', color: 'white' }}
+                >
+                  Send follow-ups ({selectedFollowUps.size})
+                </button>
+              )}
+            </section>
+
+            <ApplicationsTable
+              applications={historyApps}
+              selected={selected}
+              selectedFollowUps={selectedFollowUps}
+              onToggleSelect={toggleSelect}
+              onToggleSelectGroup={toggleSelectGroup}
+              onToggleFollowUp={toggleSelectFollowUp}
+              onReview={(groupId) => setReviewId(groupId)}
+              onRegenerate={handleRegenerate}
+              onDeleteGroup={handleDeleteGroup}
+              onDeleteRecipient={handleDeleteRecipient}
+              onDeleteEmail={handleDeleteEmail}
+              emptyMessage="No applications sent yet. Once you send from the Active tab, they'll appear here."
+            />
+          </>
+        )}
       </main>
 
       {showBulk && (

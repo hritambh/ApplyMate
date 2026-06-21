@@ -72,14 +72,16 @@ export async function getProfileForUser(userId) {
 /**
  * Resolves the OpenAI API key for a user, in priority order:
  *   1. User's own key (stored encrypted in UserProfile) — never consumes credits.
- *   2. Credits remaining → shared server key, source 'free' (caller decrements one
+ *   2. OPENAI_SHARED_KEY_FOR_ALL=true → shared server key for every user, source
+ *      'shared' — bypasses the credit system entirely (no credit consumed).
+ *   3. Credits remaining → shared server key, source 'free' (caller decrements one
  *      credit per successful generation via consumeFreeCredit).
- *   3. Otherwise → descriptive error (exhausted / pending request).
+ *   4. Otherwise → descriptive error (exhausted / pending request).
  *
  * Credits are bounded and granted by the admin (initial allowance + approvals);
- * there is no unlimited tier.
+ * there is no unlimited tier unless OPENAI_SHARED_KEY_FOR_ALL is enabled.
  *
- * Returns { key, source: 'own' | 'free' }.
+ * Returns { key, source: 'own' | 'shared' | 'free' }.
  */
 export async function resolveOpenAIKey(userId) {
   const profile = await prisma.userProfile.findUnique({ where: { userId } });
@@ -88,6 +90,14 @@ export async function resolveOpenAIKey(userId) {
   }
 
   const sharedKey = process.env.OPENAI_API_KEY;
+
+  // Env-controlled override: when enabled, every user draws on the shared
+  // server key without spending credits.
+  if (process.env.OPENAI_SHARED_KEY_FOR_ALL === 'true') {
+    if (!sharedKey) throw new Error('Shared OpenAI key is not configured on the server. Contact the administrator.');
+    return { key: sharedKey, source: 'shared' };
+  }
+
   const credits = Math.max(0, profile?.freeCredits ?? 0);
   if (credits > 0) {
     if (!sharedKey) throw new Error('Shared OpenAI key is not configured on the server. Contact the administrator.');

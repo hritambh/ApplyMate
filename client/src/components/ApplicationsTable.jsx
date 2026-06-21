@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import {
   countGroupEmails,
   countGroupEmailsByStatus,
@@ -14,17 +15,23 @@ export default function ApplicationsTable({
   selected,
   selectedFollowUps,
   onToggleSelect,
+  onToggleSelectGroup,
   onToggleFollowUp,
   onReview,
   onRegenerate,
   onDeleteGroup,
   onDeleteRecipient,
   onDeleteEmail,
+  emptyMessage,
 }) {
   if (applications.length === 0) {
     return (
       <div className="empty">
-        <p>No applications yet. Click <strong>Add companies</strong> to get started.</p>
+        <p>
+          {emptyMessage || (
+            <>No applications yet. Click <strong>Add companies</strong> to get started.</>
+          )}
+        </p>
       </div>
     );
   }
@@ -53,6 +60,7 @@ export default function ApplicationsTable({
               selected={selected}
               selectedFollowUps={selectedFollowUps}
               onToggleSelect={onToggleSelect}
+              onToggleSelectGroup={onToggleSelectGroup}
               onToggleFollowUp={onToggleFollowUp}
               onReview={onReview}
               onRegenerate={onRegenerate}
@@ -75,6 +83,7 @@ function GroupRows({
   selected,
   selectedFollowUps,
   onToggleSelect,
+  onToggleSelectGroup,
   onToggleFollowUp,
   onReview,
   onRegenerate,
@@ -85,6 +94,22 @@ function GroupRows({
   const rows = [];
   let rowIndex = 0;
   const hrCount = group.recipients?.length || 0;
+
+  // Group-level selection state for the "select all contacts" checkbox.
+  const groupSendIds = [];
+  const groupFollowIds = [];
+  for (const recipient of group.recipients || []) {
+    for (const email of getRecipientEmails(recipient)) {
+      if (isEmailSendable(group, email)) groupSendIds.push(email.id);
+      else if (isEmailFollowUpable(email)) groupFollowIds.push(email.id);
+    }
+  }
+  const groupActionable = groupSendIds.length + groupFollowIds.length;
+  const groupSelectedCount =
+    groupSendIds.filter((id) => selected.has(id)).length +
+    groupFollowIds.filter((id) => selectedFollowUps?.has(id)).length;
+  const groupAllSelected = groupActionable > 0 && groupSelectedCount === groupActionable;
+  const groupSomeSelected = groupSelectedCount > 0 && !groupAllSelected;
 
   for (const recipient of group.recipients || []) {
     const emails = getRecipientEmails(recipient);
@@ -148,10 +173,23 @@ function GroupRows({
           </td>
           <td>
             {isFirstGroupRow ? (
-              <>
-                <div className="company">{group.company}</div>
-                {hrCount > 1 && <div className="muted small">{hrCount} HR contacts</div>}
-              </>
+              <div className="company-select">
+                <GroupSelectCheckbox
+                  checked={groupAllSelected}
+                  indeterminate={groupSomeSelected}
+                  disabled={groupActionable === 0}
+                  onChange={() => onToggleSelectGroup(group)}
+                  title={
+                    groupActionable === 0
+                      ? 'No selectable contacts for this company'
+                      : `Select all ${groupActionable} contact(s) for ${group.company}`
+                  }
+                />
+                <div>
+                  <div className="company">{group.company}</div>
+                  {hrCount > 1 && <div className="muted small">{hrCount} HR contacts</div>}
+                </div>
+              </div>
             ) : null}
           </td>
           <td>{isFirstGroupRow ? group.role : null}</td>
@@ -236,6 +274,25 @@ function GroupRows({
         </tr>
       );
     },
+  );
+}
+
+function GroupSelectCheckbox({ checked, indeterminate, disabled, onChange, title }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = !checked && Boolean(indeterminate);
+  }, [checked, indeterminate]);
+
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className="group-check"
+      checked={checked}
+      disabled={disabled}
+      onChange={onChange}
+      title={title}
+    />
   );
 }
 

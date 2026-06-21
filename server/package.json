@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --env-file=.env --watch src/index.js",
-    "dev:debug": "node --inspect=9235 --env -file=.env --watch src/index.js",
+    "dev:debug": "node --inspect=9235 --env-file=.env --watch src/index.js",
     "debug": "node --inspect=9235 --env-file=.env --watch src/index.js"
   },
   "dependencies": {

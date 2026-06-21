@@ -244,6 +244,25 @@ body {
   flex: 1;
 }
 
+/* Active / History view switcher above the applications table */
+.view-tabs {
+  margin: 20px 0 4px;
+}
+
+/* Company cell: "select all contacts" checkbox alongside the company name */
+.company-select {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.company-select .group-check {
+  margin-top: 2px;
+  cursor: pointer;
+}
+.company-select .group-check:disabled {
+  cursor: default;
+}
+
 /* Buttons */
 .btn {
   appearance: none;

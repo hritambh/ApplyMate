@@ -47,6 +47,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    sharedOpenAiKeyForAll: process.env.OPENAI_SHARED_KEY_FOR_ALL === 'true',
   });
 });
 
@@ -78,6 +79,7 @@ app.listen(PORT, () => {
     port: Number(PORT),
     profileKeyConfigured: keyOk,
     sharedOpenAiKeyConfigured: Boolean(process.env.OPENAI_API_KEY),
+    sharedOpenAiKeyForAll: process.env.OPENAI_SHARED_KEY_FOR_ALL === 'true',
     databaseConfigured: Boolean(process.env.DATABASE_URL),
   });
 

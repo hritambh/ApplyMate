@@ -1088,6 +1088,14 @@ async function generateForGroup(groupId, userId) {
     profile,
   });
 
+  // Regenerating a cover letter means the user is reworking this application,
+  // so clear stale send failures (e.g. SMTP login errors) on its emails and
+  // return them to pending. Already-sent emails are left untouched.
+  await prisma.emailEntry.updateMany({
+    where: { recipient: { groupId }, status: STATUS.FAILED },
+    data: { status: STATUS.PENDING, error: null },
+  });
+
   const updated = await prisma.applicationGroup.update({
     where: { id: groupId },
     data: {
